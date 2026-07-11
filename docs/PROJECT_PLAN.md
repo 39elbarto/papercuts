@@ -147,18 +147,33 @@ Proposed separation:
 - docs/templates: harness-neutral instructions and review workflow;
 - optional adapters: separate scripts or crates, not hidden inside `add`.
 
+### 6.1 Accepted storage direction
+
+The storage and read-only decision is recorded in
+[`SAFE_STORAGE_PROFILES_ADR.md`](SAFE_STORAGE_PROFILES_ADR.md). In summary:
+
+- `private` is the hardened default;
+- inside a validated Git working tree, private state lives at
+  `GIT_COMMON_DIR/papercuts/log.jsonl`, outside every worktree;
+- outside validated Git, private mutation requires an explicit file instead of
+  silently mixing directories in a global journal;
+- `committed` explicitly preserves upstream repository-visible discovery;
+- a monotonic read-only guard denies actual appends but does not pretend to
+  infer conversational authorization;
+- existing committed journals are never auto-migrated or merged.
+
+This is a planned contract. Product behavior remains upstream v0.1 until the
+consolidated ADR and implementation gates pass.
+
 ## 7. Decisions still open
 
 These must be resolved in planning before implementation:
 
-1. Should safe/private mode become the global default or an explicit profile
-   selected by the fork?
-2. Should likely-secret detection warn, refuse, or support both policies?
-3. Which checks can be deterministic and explainable without creating a false
+1. Should likely-secret detection warn, refuse, or support both policies?
+2. Which checks can be deterministic and explainable without creating a false
    promise of complete secret detection?
-4. Should paths be omitted, repository-relative, hashed, or selected by flag?
-5. Where should private logs live by default across multiple projects?
-6. What is the smallest useful cross-project review interface?
+3. Should paths be omitted, repository-relative, hashed, or selected by flag?
+4. What is the smallest useful cross-project review interface?
 
 Until these decisions are recorded, do not start broad implementation.
 

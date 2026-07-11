@@ -172,3 +172,63 @@ Proceed with one of the three remaining independent contract decisions:
 storage profiles, path minimization, or sensitive-data guardrails. The hardened
 contract ADR will combine those choices with this release strategy before any
 broad implementation begins.
+
+## 2026-07-11 — Safe storage and read-only semantics decision
+
+### Outcome
+
+- Completed the planning contract for
+  `br-hardened-papercuts-fork-x30.2`; product code remains unchanged.
+- Added `docs/SAFE_STORAGE_PROFILES_ADR.md` with exact profile, precedence,
+  first-run, no-write, migration, rollback, permissions, schema, error, and test
+  behavior.
+- Selected `private` as the hardened default and `committed` as the explicit
+  upstream-compatible profile.
+- Selected `GIT_COMMON_DIR/papercuts/log.jsonl` as private per-project state so
+  normal and linked worktrees share history without dirtying a worktree.
+- Required explicit storage outside validated Git instead of mixing unrelated
+  directories in an implicit global journal.
+- Added a separate monotonic read-only guard; it can deny append commands but
+  cannot infer conversational scope or grant write authority.
+- Required migration refusal when only a legacy journal exists, followed by an
+  explicit copy-and-verify transition with selection-only rollback.
+
+### Evidence
+
+- Current v0.1 discovery and side-effect behavior was rechecked in `src/store.rs`,
+  all command dispatchers, schema/errors, and the relevant black-box tests.
+- A disposable Git probe confirmed that a main checkout and linked worktree
+  resolve one common Git directory, while a submodule resolves a distinct
+  common directory.
+- Product files under `src/`, `tests/`, `Cargo.toml`, and `Cargo.lock` still
+  match `upstream/main` before this decision is committed.
+
+### Verification
+
+- Release build: pass.
+- Tests: 30 passed.
+- Clippy with warnings denied: pass.
+- Formatting and `git diff --check`: pass.
+- `papercuts doctor`: healthy, eight journal lines.
+- Gitleaks: no leaks found across 13 commits.
+- UBS: skipped because this slice changed only planning/docs, Beads, and the
+  append-only dogfood journal; no code, script, hook, or executable
+  configuration changed.
+- Beads graph: no cycles; `bv --robot-next` selected
+  `br-hardened-papercuts-fork-x30.3`.
+
+### Papercuts observed
+
+- An expected failing `git rev-parse` inside a `set -e` command substitution
+  produced empty status evidence; the corrected probe used an explicit branch.
+- zsh reserves `status` as a read-only variable; the corrected portable snippet
+  used `rc` for the exit code.
+- One documentation patch missed because its expected context split a wrapped
+  paragraph differently; the retry inspected exact numbered lines and applied
+  a narrower patch.
+
+### Next step
+
+Complete the independent path-minimization and sensitive-data decisions. The
+consolidated ADR must then reconcile all three contracts before implementation
+of storage resolution begins.

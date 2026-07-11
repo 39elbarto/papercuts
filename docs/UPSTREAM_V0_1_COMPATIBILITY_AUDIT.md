@@ -1,7 +1,9 @@
 # Upstream v0.1.0 Contract and Compatibility Audit
 
-Bead: `br-hardened-papercuts-fork-x30.1`  
-Audit date: 2026-07-11  
+Bead: `br-hardened-papercuts-fork-x30.1`
+
+Audit date: 2026-07-11
+
 Mode: product-code read-only; documentation and Beads writeback only
 
 ## 1. Snapshot and conclusion

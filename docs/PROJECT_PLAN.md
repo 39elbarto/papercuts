@@ -158,9 +158,7 @@ These must be resolved in planning before implementation:
    promise of complete secret detection?
 4. Should paths be omitted, repository-relative, hashed, or selected by flag?
 5. Where should private logs live by default across multiple projects?
-6. Should the fork retain the binary/crate name while it remains GitHub-only?
-7. Which changes belong in upstream pull requests versus fork-only policy?
-8. What is the smallest useful cross-project review interface?
+6. What is the smallest useful cross-project review interface?
 
 Until these decisions are recorded, do not start broad implementation.
 
@@ -189,12 +187,27 @@ Required posture:
 
 ## 9. Compatibility and upstream strategy
 
+- The detailed maintainer contract is
+  [`UPSTREAM_SYNC_AND_RELEASE_RUNBOOK.md`](UPSTREAM_SYNC_AND_RELEASE_RUNBOOK.md).
 - Preserve `upstream` and periodically fetch it without rewriting public fork
   history.
 - Maintain a small compatibility matrix for upstream tags and fork releases.
 - Separate generic bug fixes into focused commits that can be submitted
   upstream.
 - Keep fork-only workflow adapters isolated and clearly labeled.
+- Keep the GitHub repository name `papercuts`. The Cargo package and binary may
+  keep that name through development and an exact-SHA isolated pilot only.
+- Before non-isolated public distribution, rename the package and binary if any
+  fork-only default or machine-contract behavior remains. Retain the upstream
+  name beyond the pilot only with explicit namespace authority and upstream-
+  compatible behavior.
+- Do not publish to crates.io as `papercuts`; upstream 0.1.0 occupies that
+  namespace and this fork has no verified publishing authority. The first fork
+  release is GitHub-only unless a later release gate explicitly authorizes a
+  distinct package namespace.
+- Integrate upstream on dated sync branches and merge through reviewed fork
+  pull requests. Never rebase, reset, or force-push public `main`; revert a bad
+  public integration with a normal rollback pull request.
 - Do not change contract version `1` silently; any output or record-shape change
   requires an explicit compatibility decision and schema tests.
 - Preserve the MIT license and upstream attribution.

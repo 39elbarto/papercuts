@@ -102,3 +102,73 @@ The audit unlocks four decision Beads that can proceed independently:
 - `br-hardened-papercuts-fork-x30.3` — path minimization;
 - `br-hardened-papercuts-fork-x30.4` — sensitive-data guardrail;
 - `br-hardened-papercuts-fork-x30.6` — upstream and release strategy.
+
+## 2026-07-11 — Upstream, naming, and release strategy
+
+### Outcome
+
+- Completed `br-hardened-papercuts-fork-x30.6` as a documentation and operating-
+  policy slice; product code remains unchanged.
+- Added `docs/UPSTREAM_SYNC_AND_RELEASE_RUNBOOK.md` with exact preflight, fetch,
+  merge, upstream PR, conflict, verification, rollback, and evidence procedures.
+- Defined immutable public-history rules: upstream is fetch-only, sync happens
+  on dated branches through fork pull requests, and published mistakes are
+  reverted rather than erased.
+- Classified current upstream candidates versus fork-only behavior and defined
+  how accepted, rejected, and inactive upstream proposals are carried.
+- Resolved the package and binary decision: retain `papercuts` only through
+  source development and an exact-SHA isolated pilot; rename before non-isolated
+  distribution if fork-only behavior remains.
+- Prohibited publication to crates.io as `papercuts`. The official sparse index
+  shows upstream package 0.1.0, while this fork has no verified namespace
+  authority.
+- Preserved the GitHub fork name, MIT license, upstream attribution, and an
+  explicit “not an upstream release” release-note contract.
+
+### Live evidence
+
+- `origin/main`: `6e7dd774778866821e6969779772d02e18d572c1` at pre-change snapshot.
+- `upstream/main`: `ffba2bd453ab0faeadf4f923fc727586958c8d6f`.
+- Upstream release `v0.1.0`:
+  `5d8b827abbd054f5f506d26be865f5b7f573a298`.
+- Relationship: fork was four commits ahead and zero behind; merge base was
+  exactly `upstream/main`.
+- GitHub confirmed the fork parent, MIT license, no fork release, and upstream
+  issue #1 still open without comments.
+- The official crates.io sparse index returned `papercuts` 0.1.0. The owners API
+  returned HTTP 503, so owner identity was deliberately treated as unverified.
+- The local `upstream` push URL is now the `DISABLED` sentinel; a dry-run push
+  failed locally before contacting GitHub, while fetch remains configured to
+  the original repository.
+
+### Verification
+
+- Release build: pass.
+- Tests: 30 passed.
+- Clippy with warnings denied: pass.
+- Formatting check and `git diff --check`: pass.
+- `papercuts doctor`: healthy, five journal lines after the three dogfood events
+  recorded during this slice.
+- Gitleaks: no leaks found across 12 commits.
+- UBS: skipped because this slice changed only planning/docs, Beads, and the
+  append-only dogfood journal; no code, script, hook, or executable
+  configuration changed.
+
+### Papercuts observed
+
+- crates.io's API returned repeated HTTP 503 responses during namespace-owner
+  verification; the sparse index supplied package existence and version, but
+  publication remains prohibited without an authoritative owner readback.
+- A probe assumed `target/release/papercuts`, while this host uses a shared Cargo
+  target directory. The journal records the safer instruction to use
+  `cargo run` or build and resolve the actual target directory first.
+- The destructive-command guard interpreted an angle-bracket path placeholder
+  inside a Beads note as shell redirection and blocked the complete metadata
+  command before execution. The safe retry used plain-language placeholders.
+
+### Next step
+
+Proceed with one of the three remaining independent contract decisions:
+storage profiles, path minimization, or sensitive-data guardrails. The hardened
+contract ADR will combine those choices with this release strategy before any
+broad implementation begins.

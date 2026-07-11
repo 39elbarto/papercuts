@@ -68,3 +68,37 @@ Execute `br-hardened-papercuts-fork-x30.1`: inventory the upstream `v0.1.0`
 contract and all four findings in upstream issue #1 without changing product
 behavior. That evidence unlocks the storage, path, sensitive-data, and upstream
 strategy decisions.
+
+## 2026-07-11 — Upstream v0.1 compatibility audit
+
+### Outcome
+
+- Completed `br-hardened-papercuts-fork-x30.1` without changing product code.
+- Added `docs/UPSTREAM_V0_1_COMPATIBILITY_AUDIT.md` with the complete CLI,
+  storage, record, error, side-effect, locking, fold, test, and versioning
+  inventory.
+- Confirmed `upstream/main` at `ffba2bd` and release `v0.1.0` at `5d8b827`.
+- Confirmed and classified all four findings in upstream issue #1: sensitive
+  committed data, missing MSRV declaration, dangling absolute skill symlink,
+  and `.git.exists()` repository detection.
+- Verified that the fork has no product-code diff from upstream under `src/`,
+  `tests/`, `Cargo.toml`, or `Cargo.lock`.
+
+### Verification
+
+- Release build: pass.
+- Tests: 30 passed.
+- Clippy with warnings denied: pass.
+- Formatting check: pass.
+- `papercuts doctor`: healthy, two journal lines.
+- Disposable live probes: schema, dry-run/no-create, virtual-empty list and
+  doctor all matched the documented contract.
+
+### Next step
+
+The audit unlocks four decision Beads that can proceed independently:
+
+- `br-hardened-papercuts-fork-x30.2` — storage profiles;
+- `br-hardened-papercuts-fork-x30.3` — path minimization;
+- `br-hardened-papercuts-fork-x30.4` — sensitive-data guardrail;
+- `br-hardened-papercuts-fork-x30.6` — upstream and release strategy.

@@ -1,2 +1,5 @@
 /target
 /_scratch
+
+# Codex runtime session state
+state/session-handoffs/

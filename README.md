@@ -1,5 +1,12 @@
 # papercuts
 
+> This repository is a public fork of
+> [`treygoff24/papercuts`](https://github.com/treygoff24/papercuts). The fork is
+> currently in planning: the upstream `v0.1.0` behavior remains intact while we
+> design safer defaults and multi-project operating workflows. Do not assume
+> the proposed hardening in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) is
+> implemented yet.
+
 A tiny CLI that gives AI agents a complaint box.
 
 Agents hit friction constantly — dead-end tool calls, broken links, missing helpers, footgun configs — and silently push through without telling anyone. The signal evaporates. `papercuts` gives an agent a one-line way to file the complaint at the moment it happens, and gives you (or another agent) a way to review the backlog and fix the actual problems in your repo, your tooling, your docs.

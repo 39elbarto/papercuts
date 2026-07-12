@@ -795,3 +795,62 @@ semantics and protections.
 Proceed to `x30.11` for independent adversarial unit and real-binary acceptance
 across every public surface. Keep `schema` static and treat any discovered
 runtime/schema drift as a defect rather than changing the contract silently.
+
+## 2026-07-12 — Adversarial contract-2 security acceptance
+
+### Outcome
+
+- Completed `br-hardened-papercuts-fork-x30.11` without changing production
+  behavior.
+- Added `tests/security_acceptance.rs`, a 10-group real-binary suite covering
+  every high- and medium-risk category, every persisted input field,
+  cross-field AWS detection, override gates, false-positive controls, dry-run
+  decisions, storage fallbacks, submodule identity, private path projection,
+  invalid UTF-8, parser/config redaction, and mixed/malformed journals.
+- Every refusing content fixture now proves both no echo and no write: stdout
+  and stderr omit its unique sentinel; missing target parents remain absent;
+  existing journal bytes remain identical.
+- Added `scripts/security-acceptance.sh`. It records bounded evidence under the
+  ignored Cargo target tree and sanitizes repo/shared-target paths before they
+  reach the retained log.
+- Added `docs/SECURITY_ACCEPTANCE_MATRIX.md`, mapping the consolidated ADR
+  requirements to the focused suite and the pre-existing unit/CLI tests.
+  Multi-project alias, inventory, and digest behavior remains explicitly
+  deferred.
+
+### Verification
+
+- Focused sanitized runner: 10/10 groups pass.
+- Full suite: 17 unit, 53 existing CLI, and 10 acceptance tests pass.
+- Release build, Clippy with warnings denied, formatting, shell syntax, and
+  `git diff --check`: pass.
+- Full working-tree Gitleaks: no leaks. An initially detected synthetic
+  assignment fixture was source-split without changing its runtime bytes.
+- Scoped UBS was non-zero only for test-harness panic/assert heuristics,
+  bounded JSON indexing, and disposable-fixture allocations. Its independent
+  format, Clippy, check/test-build, unsafe, command-construction, secret, async,
+  and resource checks were clean; no production code changed.
+- The release binary resolved through Cargo's shared target directory reported
+  the then-19-line dogfood journal healthy with no findings. Its legacy path
+  and unscanned warnings remained accurate and no journal bytes were rewritten.
+
+### Papercuts observed
+
+- The repo-relative `target/release/papercuts` path failed because this host
+  uses a shared Cargo target directory. This is already recorded as
+  `pc_68f9f458a3de`, so no duplicate was appended; the verification used
+  `cargo metadata --format-version 1 --no-deps` to resolve the binary.
+- Markdown hard-break trailing spaces caused the first staged diff check to
+  fail. The evidence formatting was corrected and the friction was appended as
+  `pc_ec1b21dae2ca`.
+
+### Rollback
+
+Revert the focused acceptance commit. Ignored runner artifacts may be removed
+independently; product behavior and append-only journal bytes are unaffected.
+
+### Next step
+
+Proceed automatically to `x30.12` for verified safe single-project agent
+instructions and the operator review runbook, then run the independent release
+gate in `x30.13`.

@@ -4,9 +4,9 @@
 > [`treygoff24/papercuts`](https://github.com/treygoff24/papercuts). The fork is
 > implementing its accepted hardened contract in dependency-ordered slices.
 > The profile/storage, privacy-preserving path, and bounded sensitive-content
-> preflight and contract-2 compatibility surfaces are implemented, while
-> adversarial acceptance and the release gate remain pending. Do not treat the
-> fork as hardened yet; see the
+> preflight, contract-2 compatibility, and adversarial single-project
+> acceptance surfaces are implemented, while operator instructions and the
+> release gate remain pending. Do not treat the fork as hardened yet; see the
 > live status in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 
 A tiny CLI that gives AI agents a complaint box.
@@ -62,6 +62,20 @@ once if you need the full contract.
 ```
 
 Then periodically: `papercuts list --format md` and fix what your agents keep tripping over.
+
+## Security acceptance
+
+Contributors can run the focused contract-2 real-binary acceptance suite with:
+
+```bash
+scripts/security-acceptance.sh
+```
+
+It writes sanitized, ignored evidence under `target/security-acceptance/`.
+The complete mapping from contract surfaces to test names lives in
+[`docs/SECURITY_ACCEPTANCE_MATRIX.md`](docs/SECURITY_ACCEPTANCE_MATRIX.md).
+This focused runner complements rather than replaces `cargo test
+--all-features` and the remaining release gates.
 
 ## Team modes
 

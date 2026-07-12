@@ -1001,6 +1001,11 @@ decision.
   balanced email warning, strict email refusal, and high-confidence secret-
   assignment refusal. Exit/category behavior matched contract 2 and the private
   journal hash remained unchanged.
+- After exact human authorization for one category and one dry-run command,
+  exercised the two-key strict `email_address` override. It returned
+  `decision: override` with `changed: false`; both the private-journal hash and
+  Git status were unchanged. The matched fixture value was not copied into
+  retained evidence.
 - Started the combined 14-day clock at `2026-07-12T16:07:01+07:00`. Day 1, 3,
   7, and 14 reviews are due on July 13, 15, 19, and 26 respectively. The pilot
   cannot complete before `2026-07-26T16:07:01+07:00`.
@@ -1011,4 +1016,5 @@ decision.
 
 Keep `x30.15` in progress. Perform the day-1 review after the elapsed-time gate;
 do not replace it with repeated immediate commands or unlock wider adoption.
-The synthetic override scenario remains separately approval-gated.
+The approval-gated synthetic override scenario is complete; no authorization
+extends to another category, command, or non-dry-run operation.

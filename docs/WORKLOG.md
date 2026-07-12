@@ -976,3 +976,39 @@ decision.
   rules to this repository's `AGENTS.md`.
 - The combined 14-day clock remains stopped until `acfs-workbench` is clean and
   separately activated.
+
+## 2026-07-12 — Combined allowlisted pilot activated
+
+- Verified that the earlier `acfs-workbench` `AGENTS.md` commit contained CM
+  guidance rather than the required Papercuts pilot marker; the clock remained
+  stopped instead of accepting an imprecise commit check.
+- Added and pushed only the canonical exact-binary pilot block in
+  `acfs-workbench`; all unrelated pre-existing worktree changes remained
+  unstaged and unchanged.
+- Recorded one real, non-sensitive workflow cut in the ACFS private journal.
+  The cut passed balanced policy as clean; doctor then reported one healthy
+  line and no findings.
+- Proved the ACFS Git status was byte-identical before and after the private
+  append: 27 pre-existing entries and the same sanitized SHA-256 fingerprint.
+- Verified user-only private state modes `700/600`, contract 2, the gated source
+  SHA and binary SHA-256, and healthy private doctors for both aliases.
+- Exercised append-only correction in the Papercuts journal: resolved one
+  partly inaccurate tooling cut with a non-sensitive note, then logged the
+  narrower verified envelope-shape friction as a separate open cut. Doctor is
+  healthy with two cuts and one resolution event. The ACFS alias retains its
+  one clean workflow signal.
+- Exercised three no-write synthetic policy paths with the gated binary:
+  balanced email warning, strict email refusal, and high-confidence secret-
+  assignment refusal. Exit/category behavior matched contract 2 and the private
+  journal hash remained unchanged.
+- Started the combined 14-day clock at `2026-07-12T16:07:01+07:00`. Day 1, 3,
+  7, and 14 reviews are due on July 13, 15, 19, and 26 respectively. The pilot
+  cannot complete before `2026-07-26T16:07:01+07:00`.
+- Sanitized activation evidence is in
+  `docs/evidence/x30.15-combined-pilot-activation-2026-07-12.md`.
+
+### Next step
+
+Keep `x30.15` in progress. Perform the day-1 review after the elapsed-time gate;
+do not replace it with repeated immediate commands or unlock wider adoption.
+The synthetic override scenario remains separately approval-gated.

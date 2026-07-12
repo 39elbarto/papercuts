@@ -382,15 +382,15 @@ Exit: a single-project pilot can log without publishing unnecessary context.
 
 ### Phase 3 — Pilot operating workflow
 
-Status: ready for bounded planning in `x30.14`; no target repository has been
-modified by the release gate.
+Status: the bounded `x30.15` pilot is active in both approved repositories.
 
 Pilot design: `docs/PILOT_PLAN.md` allowlists only `papercuts` and
 `acfs-workbench` for 14 days. Activation remains an `x30.15` execution step.
 
-Activation status: `papercuts` has a fresh zero-line private journal and exact
-gated-binary instructions. The combined pilot clock remains stopped pending a
-clean `acfs-workbench` activation.
+Activation status: both approved repositories have committed exact-gated-binary
+instructions and healthy private storage. The combined 14-day clock started at
+2026-07-12T16:07:01+07:00 and cannot finish before
+2026-07-26T16:07:01+07:00. Reviews are due on pilot days 1, 3, 7, and 14.
 
 - install the forked binary under an unambiguous version;
 - pilot in `papercuts`, `acfs-workbench`, and at most two other active projects;

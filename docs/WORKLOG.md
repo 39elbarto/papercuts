@@ -953,3 +953,14 @@ decision.
   selection-only rollback in `docs/PILOT_PLAN.md`.
 - Execution remains isolated in `x30.15` and must stop rather than infer around
   migration, permission, disclosure, contract, or binary-identity failures.
+
+## 2026-07-12 — Pilot activation preflight stopped safely
+
+- Installed and verified the exact gated binary in its isolated SHA-derived
+  root; binary SHA matched the release gate.
+- No-write probes succeeded in both allowlisted repositories.
+- Stopped before activation because `papercuts` requires an explicit legacy
+  journal migration decision and `acfs-workbench` has extensive pre-existing
+  changes including an already modified `AGENTS.md`.
+- No target repository file or journal changed and the 14-day clock did not
+  start. Evidence: `docs/evidence/x30.15-activation-preflight-2026-07-12.md`.

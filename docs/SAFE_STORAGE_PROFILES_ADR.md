@@ -120,20 +120,26 @@ turn off a caller's write guard.
 
 ### 4.1 Effective storage precedence
 
-Storage target resolution uses two axes. Explicit target selection is more
-specific than profile selection:
+Storage target resolution uses two independent axes.
 
-1. non-empty `--file PATH` selects `custom` storage;
-2. otherwise non-empty `PAPERCUTS_FILE` selects `custom` storage;
-3. otherwise `--profile` selects `private` or `committed`;
-4. otherwise non-empty `PAPERCUTS_PROFILE` selects the profile;
-5. otherwise the profile is `private`.
+First resolve the profile:
 
-If `--file` or `PAPERCUTS_FILE` selects `custom`, a simultaneous profile value
-does not change the path. The success or error metadata includes a sanitized
-warning that the profile was superseded by an explicit target. This preserves
-upstream's `--file` over `PAPERCUTS_FILE` rule and never silently ignores a
-more specific path.
+1. `--profile` selects `private` or `committed`;
+2. otherwise non-empty `PAPERCUTS_PROFILE` selects the profile;
+3. otherwise the profile is `private`.
+
+Then resolve the file target:
+
+1. non-empty `--file PATH` selects the explicit target;
+2. otherwise non-empty `PAPERCUTS_FILE` selects the explicit target;
+3. otherwise the selected profile supplies its default target.
+
+An explicit file changes only the target, not the selected profile. This is
+required because the profile also controls safe versus legacy path projection
+and diagnostics. `--profile committed --file PATH` therefore remains a complete
+upstream-compatibility lane, while an unqualified `--file PATH` retains the
+private profile's redaction policy. This preserves upstream's `--file` over
+`PAPERCUTS_FILE` target rule without creating a third pseudo-profile.
 
 Relative explicit paths continue to resolve lexically against the current
 working directory. The path/identity ADR may strengthen validation and output
@@ -161,9 +167,10 @@ The implementation order is deliberately explicit:
 parse CLI and environment
 validate profile and read-only values
 if actual append and read-only is true: return writes_disabled
-if --file is set: resolve custom flag target
-else if PAPERCUTS_FILE is set: resolve custom environment target
-else resolve selected profile
+resolve profile from flag, environment, or private default
+if --file is set: resolve flag target
+else if PAPERCUTS_FILE is set: resolve environment target
+else resolve the selected profile's default target
 if private and legacy-only state: apply migration state machine
 run command-specific input validation and I/O
 ```
@@ -266,7 +273,7 @@ contract and specified by the path ADR.
 The help and schema descriptions must call this profile “repository-visible,
 upstream-compatible storage,” not “safe.”
 
-### 5.4 Custom target
+### 5.4 Explicit target
 
 An explicit file preserves upstream behavior:
 
@@ -278,8 +285,9 @@ An explicit file preserves upstream behavior:
   private safety is not claimed;
 - doctor continues to report visibility findings where applicable.
 
-The effective profile is reported as `custom`, with source `flag-file` or
-`env-file`.
+The effective profile remains `private` or `committed`, with storage source
+`flag-file` or `env-file`. The path/identity ADR defines the resulting safe or
+legacy record and diagnostic projection.
 
 ## 6. Read-only task behavior
 
@@ -449,7 +457,7 @@ On other platforms, use the strongest supported user-only permissions and test
 the resulting access contract. Do not claim Unix modes on platforms that do not
 provide them.
 
-Committed and custom targets retain ordinary create semantics controlled by
+Committed and explicit targets retain ordinary create semantics controlled by
 the user's umask and explicit path, because they may intentionally be shared or
 tracked.
 
@@ -488,8 +496,9 @@ Success metadata for commands that resolve storage gains these fields:
 
 ```json
 {
-  "storage_profile": "private|committed|custom",
-  "storage_source": "default|flag-profile|env-profile|flag-file|env-file",
+  "storage_profile": "private|committed",
+  "profile_source": "default|flag-profile|env-profile",
+  "storage_source": "profile-default|flag-file|env-file",
   "write_policy": "normal|read-only"
 }
 ```
@@ -578,12 +587,14 @@ storage and path modules.
 
 - default profile is private;
 - flag profile beats environment profile;
-- flag file beats environment file and all profiles;
-- environment file beats profile selection;
+- flag file beats environment file as a target override;
+- environment file beats the profile's default target;
+- explicit file does not erase the selected profile or its path policy;
 - empty environment values are unset;
 - invalid profile/read-only values are exit 78;
-- metadata reports effective profile, source, and write policy;
-- profile superseded by explicit file produces a sanitized warning.
+- metadata reports effective profile, profile source, target source, and write
+  policy;
+- metadata reports profile source and target source independently.
 
 ### First run and side effects
 

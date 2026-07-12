@@ -165,6 +165,25 @@ The storage and read-only decision is recorded in
 This is a planned contract. Product behavior remains upstream v0.1 until the
 consolidated ADR and implementation gates pass.
 
+### 6.2 Accepted path and project-identity direction
+
+The path and identity decision is recorded in
+[`PATH_AND_PROJECT_IDENTITY_ADR.md`](PATH_AND_PROJECT_IDENTITY_ADR.md). In
+summary:
+
+- private records automatically store no filesystem or derived path identity;
+- contract-1 fields remain parseable as `cwd: "."` and `repo: null`, labeled
+  with `path_policy: omitted`;
+- committed compatibility explicitly retains legacy absolute paths;
+- private output redacts path-bearing contract-1 records without rewriting
+  source bytes;
+- strict Git metadata validation replaces `.git.exists()` discovery;
+- project names are external operator aliases in an allowlist, not record
+  fields, path hashes, remote-derived IDs, or automatic basenames.
+
+This is planned behavior only until the consolidated ADR and implementation
+gates pass.
+
 ## 7. Decisions still open
 
 These must be resolved in planning before implementation:
@@ -172,8 +191,7 @@ These must be resolved in planning before implementation:
 1. Should likely-secret detection warn, refuse, or support both policies?
 2. Which checks can be deterministic and explainable without creating a false
    promise of complete secret detection?
-3. Should paths be omitted, repository-relative, hashed, or selected by flag?
-4. What is the smallest useful cross-project review interface?
+3. What is the smallest useful cross-project review interface?
 
 Until these decisions are recorded, do not start broad implementation.
 

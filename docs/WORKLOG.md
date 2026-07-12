@@ -232,3 +232,63 @@ broad implementation begins.
 Complete the independent path-minimization and sensitive-data decisions. The
 consolidated ADR must then reconcile all three contracts before implementation
 of storage resolution begins.
+
+## 2026-07-12 — Path minimization and project identity decision
+
+### Outcome
+
+- Completed the planning contract for
+  `br-hardened-papercuts-fork-x30.3`; Rust product code remains unchanged.
+- Added `docs/PATH_AND_PROJECT_IDENTITY_ADR.md` with exact safe/legacy records,
+  read projection, diagnostics, strict Git resolution, symlink/non-UTF-8 rules,
+  project aliases, migration, rollback, and test requirements.
+- Selected automatic path omission for private records while retaining
+  contract-1 parser compatibility through sentinel fields.
+- Kept legacy absolute capture only in the explicit committed profile.
+- Selected external operator aliases for later multi-project identity; rejected
+  automatic path hashes, remote-derived IDs, random UUIDs, and basenames.
+- Required safe projection of stored legacy records in all private outputs
+  without rewriting append-only source bytes.
+- Refined the storage ADR so explicit file selection changes the target but not
+  the active private/committed profile or path policy.
+
+### Evidence
+
+- Rechecked all path-bearing Rust surfaces in record construction, storage,
+  list/resolve/doctor output, schema, errors, and black-box tests.
+- A disposable symlink probe confirmed logical shell cwd can differ from the
+  physical Git root/common directory; private output will expose neither.
+- A disposable non-UTF-8 probe confirmed current v0.1 JSON uses Unicode
+  replacement through lossy path conversion.
+- The exact example ID was generated with the existing path-independent ID
+  algorithm and is identical for safe and legacy examples.
+- The unchanged v0.1 binary parsed the proposed safe record, returned the cwd
+  sentinel and null repo, and passed doctor ID validation; compatibility is
+  proven as parsing, not contract-2 semantic awareness.
+
+### Verification
+
+- Release build: pass.
+- Tests: 30 passed.
+- Clippy with warnings denied: pass.
+- Formatting and `git diff --check`: pass.
+- `papercuts doctor`: healthy, nine journal lines.
+- Gitleaks: no leaks found across 14 commits.
+- Proposed contract-2 safe record: unchanged v0.1 list and doctor passed.
+- UBS: skipped because this slice changed only planning/docs, Beads, and the
+  append-only dogfood journal; no code, script, hook, or executable
+  configuration changed.
+- Beads graph: no cycles; `bv --robot-next` selected
+  `br-hardened-papercuts-fork-x30.4`.
+
+### Papercut observed
+
+A broad angle-bracket placeholder check matched the legitimate Rust type
+`Option<String>` and stopped validation early. The corrected check avoids
+treating language generics as shell redirection placeholders.
+
+### Next step
+
+Complete the sensitive-data guardrail decision. The consolidated ADR can then
+integrate storage, paths, input policy, compatibility, and release strategy
+before implementation begins.

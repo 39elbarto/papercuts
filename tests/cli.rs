@@ -5,7 +5,7 @@ use papercuts::commands::list::ListData;
 use papercuts::commands::resolve::ResolveData;
 use papercuts::error::exit_code_map;
 use papercuts::output::{ErrorEnvelope, SuccessEnvelope};
-use papercuts::{ItemStatus, Severity, compute_id};
+use papercuts::{ItemStatus, PathEncoding, RecordPathPolicy, Severity, compute_id};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -171,13 +171,13 @@ fn every_command_success_envelope_deserializes() {
         record_schema.data["records"]["cut"]["cwd"]
             .as_str()
             .unwrap()
-            .contains("new private cuts")
+            .contains("under omitted")
     );
     assert!(
         record_schema.data["implementation_status"]["path_projection"]
             .as_str()
             .unwrap()
-            .contains("pending x30.8")
+            .contains("implemented by x30.8")
     );
     assert_eq!(schema.data["exit_codes"]["74"], "I/O error");
     assert_eq!(schema.data["commands"]["doctor"]["read_only"], true);
@@ -504,7 +504,7 @@ fn permission_denied_is_exit_77() {
 #[test]
 fn lock_timeout_is_retryable_exit_75() {
     let temp = TempDir::new().unwrap();
-    let file = temp.path().join("cuts.jsonl");
+    let file = temp.path().join("customer-secret-lock.jsonl");
     add(&file, "locked");
     let locked = OpenOptions::new()
         .read(true)
@@ -512,10 +512,21 @@ fn lock_timeout_is_retryable_exit_75() {
         .open(&file)
         .unwrap();
     locked.lock().unwrap();
-    let output = run_file(&file, &["list"]);
+    let output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .arg("list")
+        .output()
+        .unwrap();
     locked.unlock().unwrap();
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("customer-secret"));
     let envelope = error(&output, 75, "lock_timeout");
     assert!(envelope.error.retryable);
+    assert_eq!(envelope.error.details["location"], "explicit_journal");
+    assert_eq!(envelope.meta.storage_profile.as_deref(), Some("private"));
+    assert_eq!(envelope.meta.file, None);
 }
 
 #[test]
@@ -1790,4 +1801,711 @@ fn path_environment_keeps_native_encoding_while_text_policy_requires_utf8() {
         .output()
         .unwrap();
     error(&invalid_text, 78, "config_error");
+}
+
+#[test]
+fn contract2_private_and_committed_records_are_exact_and_share_the_same_id() {
+    let temp = TempDir::new().unwrap();
+    if temp_has_git_ancestor(&temp) {
+        return;
+    }
+    let private_file = temp.path().join("private.jsonl");
+    let committed_file = temp.path().join("committed.jsonl");
+    let text = "same path policy";
+    let tags = vec!["a".to_string(), "z".to_string()];
+    let id = compute_id(
+        "2026-07-09T18:30:00.123Z",
+        "tester",
+        text,
+        Severity::Major,
+        &tags,
+    );
+
+    let private: SuccessEnvelope<AddData> = success(
+        &command()
+            .current_dir(temp.path())
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&private_file)
+            .args([
+                "add",
+                text,
+                "--agent",
+                "tester",
+                "--severity",
+                "major",
+                "--tag",
+                "z",
+                "--tag",
+                "a",
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(private.data.record.id, id);
+    assert_eq!(
+        private.data.record.path_policy,
+        Some(RecordPathPolicy::Omitted)
+    );
+    assert_eq!(
+        private.data.record.path_encoding,
+        Some(PathEncoding::Omitted)
+    );
+    let expected_private = format!(
+        "{{\"kind\":\"cut\",\"id\":\"{id}\",\"ts\":\"2026-07-09T18:30:00.123Z\",\"agent\":\"tester\",\"text\":\"same path policy\",\"tags\":[\"a\",\"z\"],\"severity\":\"major\",\"cwd\":\".\",\"repo\":null,\"path_policy\":\"omitted\",\"path_encoding\":\"omitted\"}}\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&private_file).unwrap(),
+        expected_private
+    );
+
+    let committed: SuccessEnvelope<AddData> = success(
+        &command()
+            .current_dir(temp.path())
+            .arg("--profile")
+            .arg("committed")
+            .arg("--file")
+            .arg(&committed_file)
+            .args([
+                "add",
+                text,
+                "--agent",
+                "tester",
+                "--severity",
+                "major",
+                "--tag",
+                "z",
+                "--tag",
+                "a",
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(committed.data.record.id, id);
+    assert_eq!(
+        committed.data.record.path_policy,
+        Some(RecordPathPolicy::LegacyAbsolute)
+    );
+    assert_eq!(
+        committed.data.record.path_encoding,
+        Some(PathEncoding::Utf8)
+    );
+    let cwd = temp.path().to_string_lossy();
+    let cwd_json = serde_json::to_string(cwd.as_ref()).unwrap();
+    let expected_committed = format!(
+        "{{\"kind\":\"cut\",\"id\":\"{id}\",\"ts\":\"2026-07-09T18:30:00.123Z\",\"agent\":\"tester\",\"text\":\"same path policy\",\"tags\":[\"a\",\"z\"],\"severity\":\"major\",\"cwd\":{cwd_json},\"repo\":null,\"path_policy\":\"legacy-absolute\",\"path_encoding\":\"utf8\"}}\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&committed_file).unwrap(),
+        expected_committed
+    );
+    assert!(
+        committed
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "legacy_absolute_path_exposure")
+    );
+}
+
+#[test]
+fn private_projection_redacts_legacy_records_without_rewriting_source_bytes() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("mixed.jsonl");
+    let forbidden = "/forbidden/customer/worktree";
+    let text = "legacy cut";
+    let id = compute_id(
+        "2026-07-09T18:30:00.123Z",
+        "tester",
+        text,
+        Severity::Minor,
+        &[],
+    );
+    let legacy = json!({
+        "kind":"cut","id":id,"ts":"2026-07-09T18:30:00.123Z",
+        "agent":"tester","text":text,"tags":[],"severity":"minor",
+        "cwd":forbidden,"repo":"/forbidden/customer"
+    });
+    std::fs::write(&file, format!("{legacy}\n")).unwrap();
+    let original = std::fs::read(&file).unwrap();
+
+    let list_output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .args(["list", "--status", "all"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&list_output.stdout).contains(forbidden));
+    let listed: SuccessEnvelope<ListData> = success(&list_output);
+    assert_eq!(listed.data.items[0].cut.cwd, ".");
+    assert_eq!(listed.data.items[0].cut.repo, None);
+    assert_eq!(
+        listed.data.items[0].cut.path_policy,
+        Some(RecordPathPolicy::Omitted)
+    );
+    assert!(
+        listed
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "legacy_path_records_retained:1")
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), original);
+
+    let duplicate_output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .args(["add", text, "--agent", "tester"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&duplicate_output.stdout).contains(forbidden));
+    let duplicate: SuccessEnvelope<AddData> = success(&duplicate_output);
+    assert!(!duplicate.data.changed);
+    assert_eq!(duplicate.data.record.cwd, ".");
+    assert_eq!(std::fs::read(&file).unwrap(), original);
+
+    let resolve_output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .args(["resolve", &id, "--agent", "fixer"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&resolve_output.stdout).contains(forbidden));
+    let resolved: SuccessEnvelope<ResolveData> = success(&resolve_output);
+    assert_eq!(resolved.data.record.cut.cwd, ".");
+    assert_eq!(resolved.data.record.cut.repo, None);
+    let after_resolve = std::fs::read_to_string(&file).unwrap();
+    assert!(after_resolve.starts_with(&String::from_utf8(original.clone()).unwrap()));
+    assert!(after_resolve.contains(forbidden));
+    assert_eq!(after_resolve.lines().count(), 2);
+
+    let already_output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .args(["resolve", &id, "--agent", "fixer"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&already_output.stdout).contains(forbidden));
+    success::<ResolveData>(&already_output);
+
+    let doctor_output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .arg("doctor")
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&doctor_output.stdout).contains(forbidden));
+    let doctor: SuccessEnvelope<DoctorData> = success(&doctor_output);
+    assert!(doctor.data.healthy);
+    assert!(
+        doctor
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "legacy_path_records_retained:1")
+    );
+
+    let markdown = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .args(["list", "--status", "all", "--format", "md"])
+        .output()
+        .unwrap();
+    assert!(markdown.status.success());
+    assert!(!String::from_utf8_lossy(&markdown.stdout).contains(forbidden));
+
+    let committed_output = command()
+        .arg("--profile")
+        .arg("committed")
+        .arg("--file")
+        .arg(&file)
+        .args(["list", "--status", "all"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&committed_output.stdout).contains(forbidden));
+    success::<ListData>(&committed_output);
+}
+
+#[test]
+fn doctor_reports_path_policy_mismatch_without_echoing_stored_path() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("mismatch.jsonl");
+    let forbidden = "/forbidden/mismatched/path";
+    let text = "mismatch";
+    let id = compute_id(
+        "2026-07-09T00:00:00.000Z",
+        "tester",
+        text,
+        Severity::Minor,
+        &[],
+    );
+    let record = json!({
+        "kind":"cut","id":id,"ts":"2026-07-09T00:00:00.000Z",
+        "agent":"tester","text":text,"tags":[],"severity":"minor",
+        "cwd":forbidden,"repo":null,"path_policy":"omitted","path_encoding":"omitted"
+    });
+    std::fs::write(&file, format!("{record}\n")).unwrap();
+    let before = std::fs::read(&file).unwrap();
+    let output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .arg("doctor")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(forbidden));
+    let doctor: SuccessEnvelope<DoctorData> = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        doctor
+            .data
+            .findings
+            .iter()
+            .any(|finding| finding.kind == "path_policy_mismatch")
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+}
+
+#[test]
+fn private_doctor_never_echoes_values_from_malformed_records() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("journal.jsonl");
+    let forbidden = "/forbidden/customer/doctor-value";
+    let records = format!(
+        "{{\"kind\":\"cut\",\"id\":\"pc_000000000000\",\"ts\":\"2026-07-12T00:00:00.000Z\",\"agent\":\"tester\",\"text\":\"safe\",\"tags\":[],\"severity\":\"minor\",\"cwd\":\".\",\"repo\":null,\"path_policy\":{forbidden_json},\"path_encoding\":\"omitted\"}}\n{{\"kind\":{forbidden_json}}}\n{{\"kind\":\"resolve\",\"id\":{forbidden_json},\"ts\":\"2026-07-12T00:00:00.000Z\",\"agent\":\"tester\",\"note\":null}}\n",
+        forbidden_json = serde_json::to_string(forbidden).unwrap(),
+    );
+    std::fs::write(&file, records.as_bytes()).unwrap();
+    let before = std::fs::read(&file).unwrap();
+
+    let output = command()
+        .args(["--profile", "private", "--file"])
+        .arg(&file)
+        .arg("doctor")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(forbidden));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(forbidden));
+    let envelope: SuccessEnvelope<DoctorData> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(envelope.data.findings.len(), 3);
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+}
+
+#[test]
+fn private_errors_use_opaque_locations_and_policy_metadata() {
+    let temp = TempDir::new().unwrap();
+    let missing = temp.path().join("customer-secret-missing.jsonl");
+    let output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&missing)
+        .arg("list")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("customer-secret-missing"));
+    assert!(!stderr.contains(temp.path().to_string_lossy().as_ref()));
+    let envelope = error(&output, 66, "not_found");
+    assert_eq!(
+        envelope.error.details["location"],
+        Value::String("explicit_journal".into())
+    );
+    assert_eq!(envelope.meta.storage_profile.as_deref(), Some("private"));
+    assert_eq!(envelope.meta.storage_source.as_deref(), Some("flag-file"));
+    assert_eq!(envelope.meta.path_policy.as_deref(), Some("omitted"));
+    assert_eq!(envelope.meta.file, None);
+
+    let outer = temp.path().join("outer-secret");
+    init_git(&outer);
+    let nested = outer.join("customer-secret-nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join(".git"), "gitdir: missing-secret-admin\n").unwrap();
+    let invalid = command()
+        .current_dir(&nested)
+        .arg("--profile")
+        .arg("private")
+        .arg("list")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&invalid.stderr);
+    assert!(!stderr.contains("customer-secret"));
+    assert!(!stderr.contains("missing-secret-admin"));
+    let invalid = error(&invalid, 78, "invalid_repository");
+    assert_eq!(
+        invalid.error.details["location"],
+        Value::String("repository_marker".into())
+    );
+    assert_eq!(invalid.meta.storage_profile.as_deref(), Some("private"));
+    assert_eq!(
+        invalid.meta.storage_source.as_deref(),
+        Some("profile-default")
+    );
+    assert_eq!(invalid.meta.file, None);
+
+    std::fs::write(&missing, b"").unwrap();
+    for output in [
+        command()
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&missing)
+            .args(["resolve", "/customer-secret-invalid-id"])
+            .output()
+            .unwrap(),
+        command()
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&missing)
+            .args(["list", "--since", "customer-secret-since"])
+            .output()
+            .unwrap(),
+        command()
+            .arg("--profile")
+            .arg("private")
+            .args(["list", "--format", "customer-secret-format"])
+            .output()
+            .unwrap(),
+    ] {
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("customer-secret"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_paths_are_omitted_in_private_and_labeled_in_committed() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let temp = TempDir::new().unwrap();
+    let mut name = b"repo-nonutf8-".to_vec();
+    name.push(0xff);
+    let repo = temp.path().join(OsString::from_vec(name));
+    init_git(&repo);
+
+    let private_output = command()
+        .current_dir(&repo)
+        .arg("--profile")
+        .arg("private")
+        .args(["add", "private", "--agent", "tester"])
+        .output()
+        .unwrap();
+    assert!(
+        !private_output
+            .stdout
+            .windows(3)
+            .any(|bytes| bytes == [0xef, 0xbf, 0xbd])
+    );
+    let private: SuccessEnvelope<AddData> = success(&private_output);
+    assert_eq!(
+        private.data.record.path_encoding,
+        Some(PathEncoding::Omitted)
+    );
+    let private_bytes = std::fs::read(repo.join(".git/papercuts/log.jsonl")).unwrap();
+    assert!(
+        !private_bytes
+            .windows(3)
+            .any(|bytes| bytes == [0xef, 0xbf, 0xbd])
+    );
+
+    let committed_output = command()
+        .current_dir(&repo)
+        .arg("--profile")
+        .arg("committed")
+        .args(["add", "committed", "--agent", "tester"])
+        .output()
+        .unwrap();
+    let committed: SuccessEnvelope<AddData> = success(&committed_output);
+    assert_eq!(
+        committed.data.record.path_encoding,
+        Some(PathEncoding::LossyUtf8)
+    );
+    assert!(
+        committed
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "lossy_legacy_path_encoding")
+    );
+}
+
+#[test]
+fn relative_gitdir_resolution_works_without_git_on_path() {
+    let temp = TempDir::new().unwrap();
+    let worktree = temp.path().join("submodule-like");
+    let admin = temp.path().join("admin");
+    std::fs::create_dir_all(&worktree).unwrap();
+    std::fs::create_dir_all(admin.join("objects")).unwrap();
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(admin.join("config"), "[core]\n\tbare = false\n").unwrap();
+    std::fs::write(worktree.join(".git"), "gitdir: ../admin\n").unwrap();
+
+    let output = command()
+        .current_dir(&worktree)
+        .env("PATH", "")
+        .arg("--profile")
+        .arg("private")
+        .args(["add", "native resolver", "--agent", "tester"])
+        .output()
+        .unwrap();
+    let added: SuccessEnvelope<AddData> = success(&output);
+    assert_eq!(added.data.record.cwd, ".");
+    assert!(admin.join("papercuts/log.jsonl").is_file());
+    assert!(!worktree.join(".papercuts.jsonl").exists());
+}
+
+#[test]
+fn repository_metadata_grammar_refuses_malformed_nearest_markers() {
+    let temp = TempDir::new().unwrap();
+    let cases: [(&str, &[u8]); 4] = [
+        ("empty-marker", b""),
+        ("wrong-prefix", b"directory: ../admin\n"),
+        ("nul-marker", b"gitdir: ../admin\0suffix\n"),
+        ("extra-line", b"gitdir: ../admin\nsecond-line\n"),
+    ];
+    for (name, marker) in cases {
+        let worktree = temp.path().join(name);
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(worktree.join(".git"), marker).unwrap();
+        let output = command()
+            .current_dir(&worktree)
+            .arg("--profile")
+            .arg("private")
+            .arg("list")
+            .output()
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(name));
+        error(&output, 78, "invalid_repository");
+    }
+
+    let target_is_file = temp.path().join("target-is-file");
+    std::fs::create_dir_all(&target_is_file).unwrap();
+    std::fs::write(target_is_file.join("admin-file"), "not a directory").unwrap();
+    std::fs::write(target_is_file.join(".git"), "gitdir: admin-file\n").unwrap();
+    let output = command()
+        .current_dir(&target_is_file)
+        .arg("--profile")
+        .arg("private")
+        .arg("list")
+        .output()
+        .unwrap();
+    error(&output, 78, "invalid_repository");
+
+    for (name, create_config, create_objects) in [
+        ("missing-head", true, true),
+        ("missing-config", false, true),
+        ("missing-objects", true, false),
+    ] {
+        let repo = temp.path().join(name);
+        let git_dir = repo.join(".git");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        if name != "missing-head" {
+            std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        }
+        if create_config {
+            std::fs::write(git_dir.join("config"), "[core]\n").unwrap();
+        }
+        if create_objects {
+            std::fs::create_dir_all(git_dir.join("objects")).unwrap();
+        }
+        let output = command()
+            .current_dir(&repo)
+            .arg("--profile")
+            .arg("private")
+            .arg("list")
+            .output()
+            .unwrap();
+        error(&output, 78, "invalid_repository");
+    }
+
+    let bad_commondir = temp.path().join("bad-commondir");
+    let admin = temp.path().join("bad-commondir-admin");
+    std::fs::create_dir_all(&bad_commondir).unwrap();
+    std::fs::create_dir_all(&admin).unwrap();
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(admin.join("commondir"), "../common\nextra\n").unwrap();
+    std::fs::write(
+        bad_commondir.join(".git"),
+        format!("gitdir: {}\n", admin.display()),
+    )
+    .unwrap();
+    let output = command()
+        .current_dir(&bad_commondir)
+        .arg("--profile")
+        .arg("private")
+        .arg("list")
+        .output()
+        .unwrap();
+    error(&output, 78, "invalid_repository");
+}
+
+#[cfg(unix)]
+#[test]
+fn metadata_paths_preserve_symlink_parent_traversal_until_canonicalization() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+
+    let worktree = temp.path().join("gitdir-worktree");
+    let routed_parent = temp.path().join("gitdir-routed-parent");
+    let routed_nested = routed_parent.join("nested");
+    let routed_git = routed_parent.join("admin");
+    let lexical_git = worktree.join("admin");
+    std::fs::create_dir_all(&worktree).unwrap();
+    std::fs::create_dir_all(&routed_nested).unwrap();
+    for git_dir in [&routed_git, &lexical_git] {
+        std::fs::create_dir_all(git_dir.join("objects")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(git_dir.join("config"), "[core]\n").unwrap();
+    }
+    symlink(&routed_nested, worktree.join("route")).unwrap();
+    std::fs::write(worktree.join(".git"), "gitdir: route/../admin\n").unwrap();
+    let output = command()
+        .current_dir(&worktree)
+        .args(["--profile", "private", "add", "gitdir traversal"])
+        .output()
+        .unwrap();
+    success::<AddData>(&output);
+    assert!(routed_git.join("papercuts/log.jsonl").exists());
+    assert!(!lexical_git.join("papercuts/log.jsonl").exists());
+
+    let common_worktree = temp.path().join("commondir-worktree");
+    let git_dir = temp.path().join("commondir-admin");
+    let common_parent = temp.path().join("commondir-routed-parent");
+    let common_nested = common_parent.join("nested");
+    let routed_common = common_parent.join("common");
+    let lexical_common = git_dir.join("common");
+    std::fs::create_dir_all(&common_worktree).unwrap();
+    std::fs::create_dir_all(&git_dir).unwrap();
+    std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    for common in [&routed_common, &lexical_common] {
+        std::fs::create_dir_all(common.join("objects")).unwrap();
+        std::fs::write(common.join("config"), "[core]\n").unwrap();
+    }
+    std::fs::create_dir_all(&common_nested).unwrap();
+    symlink(&common_nested, git_dir.join("route")).unwrap();
+    std::fs::write(git_dir.join("commondir"), "route/../common\n").unwrap();
+    std::fs::write(
+        common_worktree.join(".git"),
+        format!("gitdir: {}\n", git_dir.display()),
+    )
+    .unwrap();
+    let output = command()
+        .current_dir(&common_worktree)
+        .args(["--profile", "private", "add", "commondir traversal"])
+        .output()
+        .unwrap();
+    success::<AddData>(&output);
+    assert!(routed_common.join("papercuts/log.jsonl").exists());
+    assert!(!lexical_common.join("papercuts/log.jsonl").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_git_marker_and_non_utf8_gitdir_behave_deterministically() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let symlink_repo = temp.path().join("symlink-marker-secret");
+    let marker_target = temp.path().join("marker-target-secret");
+    std::fs::create_dir_all(&symlink_repo).unwrap();
+    std::fs::create_dir_all(&marker_target).unwrap();
+    symlink(&marker_target, symlink_repo.join(".git")).unwrap();
+    let output = command()
+        .current_dir(&symlink_repo)
+        .arg("--profile")
+        .arg("private")
+        .arg("list")
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("secret"));
+    error(&output, 78, "invalid_repository");
+
+    let worktree = temp.path().join("native-gitdir-worktree");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let mut admin_name = b"native-admin-".to_vec();
+    admin_name.push(0xff);
+    let admin_name = OsString::from_vec(admin_name);
+    let admin = temp.path().join(&admin_name);
+    std::fs::create_dir_all(admin.join("objects")).unwrap();
+    std::fs::write(admin.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(admin.join("config"), "[core]\n").unwrap();
+    let mut marker = b"gitdir: ../".to_vec();
+    marker.extend_from_slice(admin_name.as_os_str().as_bytes());
+    marker.extend_from_slice(b"\r\n");
+    std::fs::write(worktree.join(".git"), marker).unwrap();
+    let output = command()
+        .current_dir(&worktree)
+        .arg("--profile")
+        .arg("private")
+        .args(["add", "native metadata", "--agent", "tester"])
+        .output()
+        .unwrap();
+    assert!(
+        !output
+            .stdout
+            .windows(3)
+            .any(|bytes| bytes == [0xef, 0xbf, 0xbd])
+    );
+    success::<AddData>(&output);
+    assert!(admin.join("papercuts/log.jsonl").is_file());
+}
+
+#[test]
+fn bare_repository_uses_private_non_git_semantics() {
+    let temp = TempDir::new().unwrap();
+    let bare = temp.path().join("bare.git");
+    std::fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "--bare"]);
+    let output = command()
+        .current_dir(&bare)
+        .arg("--profile")
+        .arg("private")
+        .args(["add", "no implicit bare storage", "--dry-run"])
+        .output()
+        .unwrap();
+    error(&output, 78, "storage_required");
+    assert!(!bare.join("papercuts/log.jsonl").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn private_explicit_parent_symlink_is_allowed_without_path_echo() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let real_parent = temp.path().join("customer-secret-real-parent");
+    let linked_parent = temp.path().join("customer-secret-linked-parent");
+    std::fs::create_dir_all(&real_parent).unwrap();
+    symlink(&real_parent, &linked_parent).unwrap();
+    let file = linked_parent.join("cuts.jsonl");
+    let output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .args(["add", "through parent", "--agent", "tester"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("customer-secret"));
+    success::<AddData>(&output);
+    assert!(real_parent.join("cuts.jsonl").is_file());
 }

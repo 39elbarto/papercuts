@@ -3,7 +3,7 @@ use crate::error::{AppError, AppResult};
 use crate::output::{self, Meta};
 use crate::policy::{PolicyContext, StorageProfile};
 use crate::store;
-use crate::{CutRecord, compute_id, format_timestamp};
+use crate::{CutRecord, PathEncoding, RecordPathPolicy, compute_id, format_timestamp};
 use serde::{Deserialize, Serialize};
 use std::io::{IsTerminal, Read};
 
@@ -13,7 +13,7 @@ pub struct AddData {
     pub record: CutRecord,
 }
 
-pub fn run(args: AddArgs, context: PolicyContext, pretty: bool) -> AppResult<i32> {
+pub fn run(args: AddArgs, context: &PolicyContext, pretty: bool) -> AppResult<i32> {
     let resolved = &context.storage;
     let text = read_text(args.text)?;
     if text.trim().is_empty() {
@@ -46,20 +46,38 @@ pub fn run(args: AddArgs, context: PolicyContext, pretty: bool) -> AppResult<i32
     tags.sort();
     let now = context.effective_now()?;
     let ts = format_timestamp(now);
-    let (cwd, repo) = if context.profile == StorageProfile::Private {
-        (".".into(), None)
-    } else {
-        (
-            std::env::current_dir()
-                .map_err(|error| AppError::from_io(error, std::path::Path::new(".")))?
-                .to_string_lossy()
-                .into_owned(),
-            resolved
-                .repo
-                .as_ref()
-                .map(|path| path.to_string_lossy().into_owned()),
-        )
-    };
+    let (cwd, repo, path_policy, path_encoding, lossy_paths) =
+        if context.profile == StorageProfile::Private {
+            (
+                ".".into(),
+                None,
+                RecordPathPolicy::Omitted,
+                PathEncoding::Omitted,
+                false,
+            )
+        } else {
+            let cwd_path = std::env::current_dir()
+                .map_err(|error| AppError::from_io(error, std::path::Path::new(".")))?;
+            let lossy = cwd_path.to_str().is_none()
+                || resolved
+                    .repo
+                    .as_ref()
+                    .is_some_and(|path| path.to_str().is_none());
+            (
+                cwd_path.to_string_lossy().into_owned(),
+                resolved
+                    .repo
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
+                RecordPathPolicy::LegacyAbsolute,
+                if lossy {
+                    PathEncoding::LossyUtf8
+                } else {
+                    PathEncoding::Utf8
+                },
+                lossy,
+            )
+        };
     let record = CutRecord {
         kind: "cut".into(),
         id: compute_id(&ts, &agent, &text, args.severity, &tags),
@@ -70,9 +88,14 @@ pub fn run(args: AddArgs, context: PolicyContext, pretty: bool) -> AppResult<i32
         severity: args.severity,
         cwd,
         repo,
+        path_policy: Some(path_policy),
+        path_encoding: Some(path_encoding),
     };
 
     let mut warnings = Vec::new();
+    if lossy_paths {
+        warnings.push("lossy_legacy_path_encoding".into());
+    }
     let (changed, record) = if args.dry_run {
         warnings.push("dry run; no record appended".into());
         (false, record)
@@ -94,7 +117,11 @@ pub fn run(args: AddArgs, context: PolicyContext, pretty: bool) -> AppResult<i32
     if !changed && !args.dry_run {
         warnings.push("duplicate papercut; existing record returned".into());
     }
-    let mut meta = Meta::from_policy(&context, true);
+    let (record, retained_legacy) = context.project_cut(record);
+    if context.profile == StorageProfile::Private && retained_legacy {
+        warnings.push("legacy_path_records_retained:1".into());
+    }
+    let mut meta = Meta::from_policy(context, true);
     meta.agent_source = Some(identity.source.into());
     meta.warnings.extend(warnings);
     output::write_success(AddData { changed, record }, pretty, meta)

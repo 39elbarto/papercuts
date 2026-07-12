@@ -1,5 +1,6 @@
 use crate::error::{AppError, AppResult};
-use crate::store::{self, ResolvedFile};
+use crate::store::{self, ResolvedFile, StorageSource};
+use crate::{CutRecord, ListItem, PathEncoding, RecordPathPolicy};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -220,6 +221,29 @@ impl PolicyContext {
     pub fn effective_now(&self) -> AppResult<Timestamp> {
         crate::effective_now()
     }
+
+    pub fn project_cut(&self, mut cut: CutRecord) -> (CutRecord, bool) {
+        let retained_legacy = cut.path_policy != Some(RecordPathPolicy::Omitted);
+        if self.profile == StorageProfile::Private {
+            cut.cwd = ".".into();
+            cut.repo = None;
+            cut.path_policy = Some(RecordPathPolicy::Omitted);
+            cut.path_encoding = Some(PathEncoding::Omitted);
+        }
+        (cut, retained_legacy)
+    }
+
+    pub fn project_item(&self, item: ListItem) -> (ListItem, bool) {
+        let (cut, retained_legacy) = self.project_cut(item.cut);
+        (
+            ListItem {
+                cut,
+                status: item.status,
+                resolution: item.resolution,
+            },
+            retained_legacy,
+        )
+    }
 }
 
 pub fn resolve(
@@ -285,12 +309,58 @@ pub fn resolve_with_preflight(
     }
     preflight()?;
 
-    let storage = store::discover(file, profile, intent)?;
-    store::validate_private_journal(&storage)?;
     let path_policy = match profile {
         StorageProfile::Private => PathPolicy::Omitted,
         StorageProfile::Committed => PathPolicy::LegacyAbsolute,
     };
+    let explicit_target = resolve_explicit_target(file)?;
+    let storage_source = explicit_target
+        .as_ref()
+        .map_or(StorageSource::ProfileDefault, |(_, source)| *source);
+    let private_error_location = if explicit_target.is_some() {
+        "explicit_journal"
+    } else {
+        "private_journal"
+    };
+    let storage = store::discover(explicit_target, profile, intent).map_err(|error| {
+        if profile == StorageProfile::Private {
+            let location = if error.code == "invalid_repository" {
+                "repository_marker"
+            } else {
+                private_error_location
+            };
+            error.sanitize_private_path(location).with_policy_parts(
+                profile,
+                profile_source,
+                storage_source,
+                write_policy,
+                path_policy,
+                None,
+            )
+        } else {
+            error
+        }
+    })?;
+    store::validate_private_journal(&storage).map_err(|error| {
+        if profile == StorageProfile::Private {
+            error
+                .sanitize_private_path(if storage.explicit {
+                    "explicit_journal"
+                } else {
+                    "private_journal"
+                })
+                .with_policy_parts(
+                    profile,
+                    profile_source,
+                    storage.source,
+                    write_policy,
+                    path_policy,
+                    None,
+                )
+        } else {
+            error
+        }
+    })?;
     Ok(PolicyContext {
         profile,
         profile_source,
@@ -302,6 +372,21 @@ pub fn resolve_with_preflight(
         allow_sensitive,
         agent,
     })
+}
+
+fn resolve_explicit_target(flag: Option<PathBuf>) -> AppResult<Option<(PathBuf, StorageSource)>> {
+    if let Some(path) = flag {
+        if path.as_os_str().is_empty() {
+            return Err(AppError::invalid_argument(
+                "--file requires a non-empty path",
+                "Pass a non-empty --file PATH or omit the flag.",
+            ));
+        }
+        return Ok(Some((path, StorageSource::FlagFile)));
+    }
+    Ok(std::env::var_os("PAPERCUTS_FILE")
+        .filter(|value| !value.is_empty())
+        .map(|path| (PathBuf::from(path), StorageSource::EnvFile)))
 }
 
 fn resolve_profile(flag: Option<StorageProfile>) -> AppResult<(StorageProfile, ProfileSource)> {

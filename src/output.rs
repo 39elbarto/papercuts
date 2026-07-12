@@ -126,6 +126,15 @@ pub fn write_success<T: Serialize>(data: T, pretty: bool, mut meta: Meta) -> io:
 }
 
 pub fn write_error(error: &AppError) -> i32 {
+    let mut meta = Meta::new();
+    if let Some(policy) = error.policy_meta.as_deref() {
+        meta.storage_profile = Some(policy.storage_profile.clone());
+        meta.profile_source = Some(policy.profile_source.clone());
+        meta.storage_source = Some(policy.storage_source.clone());
+        meta.write_policy = Some(policy.write_policy.clone());
+        meta.path_policy = Some(policy.path_policy.clone());
+        meta.file = policy.file.clone();
+    }
     let envelope = ErrorEnvelope {
         ok: false,
         error: ErrorBody {
@@ -135,7 +144,7 @@ pub fn write_error(error: &AppError) -> i32 {
             retryable: error.retryable,
             suggested_fix: error.suggested_fix.clone(),
         },
-        meta: Meta::new(),
+        meta,
     };
     let mut output = io::BufWriter::new(io::stderr().lock());
     let _ = serde_json::to_writer(&mut output, &envelope);

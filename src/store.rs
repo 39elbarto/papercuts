@@ -78,13 +78,13 @@ pub struct Repository {
 }
 
 pub fn discover(
-    flag: Option<PathBuf>,
+    explicit_target: Option<(PathBuf, StorageSource)>,
     profile: StorageProfile,
     intent: StorageIntent,
 ) -> AppResult<ResolvedFile> {
     let cwd = std::env::current_dir().map_err(|error| AppError::from_io(error, Path::new(".")))?;
     let repository = resolve_repository(&cwd)?;
-    if let Some(path) = flag {
+    if let Some((path, source)) = explicit_target {
         if path.as_os_str().is_empty() {
             return Err(AppError::invalid_argument(
                 "--file requires a non-empty path",
@@ -96,21 +96,7 @@ pub fn discover(
             profile,
             explicit: true,
             repo: repository.as_ref().map(|repo| repo.root.clone()),
-            source: StorageSource::FlagFile,
-            private_implicit: false,
-            migration: MigrationState::None,
-            warnings: exposure_warnings(profile),
-        });
-    }
-    if let Some(path) = std::env::var_os("PAPERCUTS_FILE")
-        && !path.is_empty()
-    {
-        return Ok(ResolvedFile {
-            path: Some(absolute(&cwd, PathBuf::from(path))),
-            profile,
-            explicit: true,
-            repo: repository.as_ref().map(|repo| repo.root.clone()),
-            source: StorageSource::EnvFile,
+            source,
             private_implicit: false,
             migration: MigrationState::None,
             warnings: exposure_warnings(profile),
@@ -234,7 +220,7 @@ pub fn resolve_repository(start: &Path) -> AppResult<Option<Repository>> {
             marker
         } else if metadata.is_file() {
             let value = read_metadata_path(&marker, "gitdir:")?;
-            absolute(candidate, value)
+            metadata_target(candidate, value)
         } else {
             return Err(AppError::invalid_repository(
                 "the nearest Git marker is neither a directory nor a gitdir file",
@@ -246,7 +232,7 @@ pub fn resolve_repository(start: &Path) -> AppResult<Option<Repository>> {
         let common_dir = match std::fs::symlink_metadata(&commondir_file) {
             Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
                 let value = read_single_path(&commondir_file)?;
-                canonical_directory(&absolute(&git_dir, value), "Git common directory")?
+                canonical_directory(&metadata_target(&git_dir, value), "Git common directory")?
             }
             Ok(_) => {
                 return Err(AppError::invalid_repository(
@@ -269,49 +255,77 @@ pub fn resolve_repository(start: &Path) -> AppResult<Option<Repository>> {
 
 fn read_metadata_path(path: &Path, prefix: &str) -> AppResult<PathBuf> {
     let bytes = std::fs::read(path).map_err(|error| AppError::from_io(error, path))?;
-    let text = std::str::from_utf8(&bytes)
-        .map_err(|_| AppError::invalid_repository("Git metadata path must be valid UTF-8"))?;
-    let line = single_logical_line(text)?;
+    let line = single_logical_line(&bytes)?;
     let value = line
-        .strip_prefix(prefix)
+        .strip_prefix(prefix.as_bytes())
         .ok_or_else(|| AppError::invalid_repository("Git metadata has an unknown path prefix"))?;
-    let value = value.trim_start();
+    let value = trim_ascii_start(value);
     if value.is_empty() {
         return Err(AppError::invalid_repository(
             "Git metadata path must not be empty",
         ));
     }
-    Ok(PathBuf::from(value))
+    metadata_path(value)
 }
 
 fn read_single_path(path: &Path) -> AppResult<PathBuf> {
     let bytes = std::fs::read(path).map_err(|error| AppError::from_io(error, path))?;
-    let text = std::str::from_utf8(&bytes).map_err(|_| {
-        AppError::invalid_repository("Git common-directory metadata must be valid UTF-8")
-    })?;
-    let line = single_logical_line(text)?;
+    let line = single_logical_line(&bytes)?;
     if line.is_empty() {
         return Err(AppError::invalid_repository(
             "Git common-directory path must not be empty",
         ));
     }
-    Ok(PathBuf::from(line))
+    metadata_path(line)
 }
 
-fn single_logical_line(text: &str) -> AppResult<&str> {
-    if text.as_bytes().contains(&0) {
+fn single_logical_line(bytes: &[u8]) -> AppResult<&[u8]> {
+    if bytes.contains(&0) {
         return Err(AppError::invalid_repository(
             "Git metadata must not contain NUL bytes",
         ));
     }
-    let mut lines = text.lines();
-    let first = lines.next().unwrap_or("").trim_end_matches('\r');
-    if lines.any(|line| !line.trim().is_empty()) {
+    let mut lines = bytes.split(|byte| *byte == b'\n');
+    let first = lines.next().unwrap_or_default();
+    let first = first.strip_suffix(b"\r").unwrap_or(first);
+    if lines.any(|line| !line.iter().all(u8::is_ascii_whitespace)) {
         return Err(AppError::invalid_repository(
             "Git metadata must contain exactly one logical line",
         ));
     }
     Ok(first)
+}
+
+fn trim_ascii_start(mut bytes: &[u8]) -> &[u8] {
+    while bytes.first().is_some_and(u8::is_ascii_whitespace) {
+        bytes = &bytes[1..];
+    }
+    bytes
+}
+
+#[cfg(unix)]
+fn metadata_path(bytes: &[u8]) -> AppResult<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    Ok(PathBuf::from(OsString::from_vec(bytes.to_vec())))
+}
+
+#[cfg(not(unix))]
+fn metadata_path(bytes: &[u8]) -> AppResult<PathBuf> {
+    let value = std::str::from_utf8(bytes).map_err(|_| {
+        AppError::invalid_repository("Git metadata path is not valid on this platform")
+    })?;
+    Ok(PathBuf::from(value))
+}
+
+fn metadata_target(base: &Path, path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        // Preserve the kernel's symlink/`..` traversal semantics until
+        // `canonicalize`; lexical normalization can select a different target.
+        base.join(path)
+    }
 }
 
 fn canonical_directory(path: &Path, label: &str) -> AppResult<PathBuf> {
@@ -581,6 +595,7 @@ pub fn append_json<T: serde::Serialize>(
                 retryable: false,
                 suggested_fix: "Check the papercuts file and filesystem, then retry.".into(),
                 exit_code: 74,
+                policy_meta: None,
             });
         }
         return Err(AppError::from_io(error, path));

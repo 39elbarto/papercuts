@@ -48,6 +48,25 @@ pub struct CutRecord {
     pub severity: Severity,
     pub cwd: String,
     pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_policy: Option<RecordPathPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_encoding: Option<PathEncoding>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecordPathPolicy {
+    Omitted,
+    LegacyAbsolute,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PathEncoding {
+    Omitted,
+    Utf8,
+    LossyUtf8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,7 +130,7 @@ pub fn parse_since(value: &str, now: Timestamp) -> AppResult<Timestamp> {
     if let Some((number, unit)) = relative_since_parts(value) {
         let amount = number.parse::<i64>().map_err(|_| {
             AppError::invalid_argument(
-                format!("invalid --since value '{value}'"),
+                "invalid --since value",
                 "Use a full RFC3339 timestamp, Nd, or Nh.",
             )
         })?;
@@ -122,7 +141,7 @@ pub fn parse_since(value: &str, now: Timestamp) -> AppResult<Timestamp> {
         }
         .ok_or_else(|| {
             AppError::invalid_argument(
-                format!("--since value '{value}' is too large"),
+                "--since value is too large",
                 "Use a smaller Nd or Nh duration.",
             )
         })?;
@@ -130,7 +149,7 @@ pub fn parse_since(value: &str, now: Timestamp) -> AppResult<Timestamp> {
             .checked_sub(SignedDuration::from_hours(hours))
             .map_err(|_| {
                 AppError::invalid_argument(
-                    format!("--since value '{value}' is outside the supported range"),
+                    "--since value is outside the supported range",
                     "Use a smaller Nd or Nh duration.",
                 )
             });

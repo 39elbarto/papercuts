@@ -12,7 +12,7 @@ fn main() {
             }
             _ => {
                 let app_error = AppError::invalid_argument(
-                    error.to_string(),
+                    "invalid command arguments",
                     "Run `papercuts --help` or `papercuts schema` for accepted commands and values.",
                 );
                 std::process::exit(papercuts::output::write_error(&app_error));

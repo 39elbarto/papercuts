@@ -16,7 +16,7 @@ pub struct ListData {
     pub truncated: bool,
 }
 
-pub fn run(args: ListArgs, context: PolicyContext, pretty: bool) -> AppResult<i32> {
+pub fn run(args: ListArgs, context: &PolicyContext, pretty: bool) -> AppResult<i32> {
     let resolved = &context.storage;
     let mut warnings = resolved.warnings.clone();
     let folded = if let Some(path) = resolved.path.as_deref() {
@@ -45,6 +45,23 @@ pub fn run(args: ListArgs, context: PolicyContext, pretty: bool) -> AppResult<i3
         store::FoldResult::default()
     };
     warnings.extend(folded.warnings);
+    let mut legacy_path_records = 0usize;
+    let projected_items: Vec<_> = folded
+        .items
+        .into_iter()
+        .map(|item| {
+            let (item, retained_legacy) = context.project_item(item);
+            if retained_legacy {
+                legacy_path_records += 1;
+            }
+            item
+        })
+        .collect();
+    if context.profile == StorageProfile::Private && legacy_path_records > 0 {
+        warnings.push(format!(
+            "legacy_path_records_retained:{legacy_path_records}"
+        ));
+    }
     let since = args
         .since
         .as_deref()
@@ -56,8 +73,7 @@ pub fn run(args: ListArgs, context: PolicyContext, pretty: bool) -> AppResult<i3
             }
         })
         .transpose()?;
-    let mut items: Vec<_> = folded
-        .items
+    let mut items: Vec<_> = projected_items
         .into_iter()
         .filter(|item| match args.status {
             StatusFilter::Open => item.status == ItemStatus::Open,
@@ -101,7 +117,7 @@ pub fn run(args: ListArgs, context: PolicyContext, pretty: bool) -> AppResult<i3
     if args.format == OutputFormat::Md {
         write_markdown(&data.items, &warnings)?;
     } else {
-        let mut meta = Meta::from_policy(&context, false);
+        let mut meta = Meta::from_policy(context, false);
         meta.warnings = warnings;
         output::write_success(data, pretty, meta)
             .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;

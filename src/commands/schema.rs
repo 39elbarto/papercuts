@@ -5,14 +5,16 @@ use serde_json::{Value, json};
 pub fn contract(target: SchemaTarget) -> Value {
     let implementation_status = json!({
         "storage_policy": "implemented by x30.7",
-        "path_projection": "new private cuts use cwd '.' and repo null; complete projection of legacy records is pending x30.8",
+        "path_projection": "implemented by x30.8 for new records, mixed-journal reads, command outputs, and private path diagnostics",
         "sensitive_preflight": "policy and override inputs are resolved, but content scanning and enforcement are pending x30.9",
         "security_claim": "none until implementation, adversarial, documentation, and release gates pass"
     });
     let records = json!({
-        "cut": {"kind":"cut","id":"pc_<12 lowercase hex>","ts":"RFC3339 UTC milliseconds","agent":"string","text":"string <= 10000 bytes","tags":["string"],"severity":"minor|major|blocker","cwd":". for new private cuts; absolute path for committed and unprojected legacy records","repo":"null for new private cuts; absolute path|null for committed and unprojected legacy records"},
+        "cut": {"kind":"cut","id":"pc_<12 lowercase hex>","ts":"RFC3339 UTC milliseconds","agent":"string","text":"string <= 10000 bytes","tags":["string"],"severity":"minor|major|blocker","cwd":". under omitted; absolute path under legacy-absolute","repo":"null under omitted; absolute path|null under legacy-absolute","path_policy":"omitted|legacy-absolute; missing means contract-1 legacy","path_encoding":"omitted|utf8|lossy-utf8; missing with path_policy means contract-1 legacy"},
         "resolve": {"kind":"resolve","id":"pc_<12 lowercase hex>","ts":"RFC3339 UTC milliseconds","agent":"string","note":"string|null"},
-        "list_item": {"cut":"all stored cut fields; legacy private path projection pending x30.8","status":"open|resolved","resolution":"{ts,agent,note}|omitted"}
+        "list_item": {"cut":"all cut fields projected through the active profile without rewriting source bytes","status":"open|resolved","resolution":"{ts,agent,note}|omitted"},
+        "private_path_fields": {"cwd":".","repo":null,"path_policy":"omitted","path_encoding":"omitted"},
+        "committed_path_fields": {"cwd":"absolute path","repo":"absolute path|null","path_policy":"legacy-absolute","path_encoding":"utf8|lossy-utf8"}
     });
     let errors = json!({
         "shape": {"ok":false,"error":{"code":"string","message":"string","details":{},"retryable":false,"suggested_fix":"string"},"meta":{"contract":2}},
@@ -49,6 +51,7 @@ pub fn contract(target: SchemaTarget) -> Value {
             "records": records,
             "id": {"prefix":"pc_","hex_digits":12,"hash":"SHA-256 first 6 bytes","fields_in_order":["ts","agent","text","severity","sorted tags joined with comma"],"encoding":"u32 little-endian UTF-8 byte length before each field"},
             "discovery": {"target_precedence":["--file","PAPERCUTS_FILE","profile default"],"private_default":"validated GIT_COMMON_DIR/papercuts/log.jsonl; explicit storage required outside Git","committed_default":"validated repository root/.papercuts.jsonl or $HOME/.papercuts/log.jsonl"},
+            "path_contract": {"id_excludes":["cwd","repo","path_policy","path_encoding"],"private_projection":"contract-1 and legacy-absolute records return omitted sentinels without source rewrite","committed_projection":"stored legacy paths remain visible; omitted paths are never reconstructed","private_error_locations":["current_working_directory","repository_marker","git_directory","git_common_directory","private_journal","explicit_journal","stdin","stdout"],"limitations":"agent-authored text, tags, and notes can still contain paths; sensitive preflight is pending x30.9"},
             "errors": errors,
             "exit_codes": exit_codes,
             "storage": {"format":"append-only JSONL","private_permissions":"implicit directory 0700 and file 0600 on Unix","migration":"legacy-only private default requires explicit copy-and-verify migration","locking":"local filesystems only; 50 retries x 100ms","durability":"best effort; no fsync per append"}

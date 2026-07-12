@@ -13,6 +13,17 @@ pub struct AppError {
     pub retryable: bool,
     pub suggested_fix: String,
     pub exit_code: i32,
+    pub policy_meta: Option<Box<ErrorPolicyMeta>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ErrorPolicyMeta {
+    pub storage_profile: String,
+    pub profile_source: String,
+    pub storage_source: String,
+    pub write_policy: String,
+    pub path_policy: String,
+    pub file: Option<String>,
 }
 
 /// Single source of truth for every public error code, its exit code, and the
@@ -140,10 +151,10 @@ impl AppError {
         Self::new("not_found", message, false, fix)
     }
 
-    pub fn ambiguous_id(prefix: &str, candidates: Vec<String>) -> Self {
+    pub fn ambiguous_id(candidates: Vec<String>) -> Self {
         let mut error = Self::new(
             "ambiguous_id",
-            format!("ID prefix '{prefix}' matches multiple papercuts"),
+            "the ID prefix matches multiple papercuts",
             false,
             "Use one of the full IDs listed in error.details.candidates.",
         );
@@ -231,7 +242,8 @@ impl AppError {
     }
 
     pub fn from_io(error: std::io::Error, path: &std::path::Path) -> Self {
-        match error.kind() {
+        let kind = error.kind();
+        let mut app_error = match kind {
             std::io::ErrorKind::PermissionDenied => Self::new(
                 "permission_denied",
                 format!("permission denied for {}: {error}", path.display()),
@@ -244,22 +256,135 @@ impl AppError {
                 false,
                 "Check that the path exists and its filesystem is available, then retry.",
             ),
-        }
+        };
+        app_error.details = json!({
+            "os_kind": os_kind(kind),
+            "location": known_location(path),
+        });
+        app_error
     }
 
     /// Error mapping for opening an existing papercuts log file. This is the
     /// only place where `NotFound` is mapped to `not_found` / 66.
     pub fn from_log_open(error: std::io::Error, path: &std::path::Path) -> Self {
         if error.kind() == std::io::ErrorKind::NotFound {
-            Self::new(
+            let mut app_error = Self::new(
                 "not_found",
                 format!("papercuts file not found: {}", path.display()),
                 false,
                 "Run `papercuts add` to create the file or pass an existing --file PATH.",
-            )
+            );
+            app_error.details = json!({
+                "os_kind": "not-found",
+                "location": known_location(path),
+            });
+            app_error
         } else {
             Self::from_io(error, path)
         }
+    }
+
+    pub fn with_policy(mut self, context: &crate::policy::PolicyContext) -> Self {
+        let file = if context.profile == crate::policy::StorageProfile::Committed {
+            context
+                .storage
+                .path
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+        self = self.with_policy_parts(
+            context.profile,
+            context.profile_source,
+            context.storage.source,
+            context.write_policy,
+            context.path_policy,
+            file,
+        );
+        if context.profile == crate::policy::StorageProfile::Private {
+            let location = self
+                .details
+                .get("location")
+                .and_then(Value::as_str)
+                .filter(|location| !location.is_empty())
+                .unwrap_or(if context.storage.explicit {
+                    "explicit_journal"
+                } else {
+                    "private_journal"
+                })
+                .to_string();
+            self = self.sanitize_private_path(&location);
+        }
+        self
+    }
+
+    pub fn with_policy_parts(
+        mut self,
+        profile: crate::policy::StorageProfile,
+        profile_source: crate::policy::ProfileSource,
+        storage_source: crate::store::StorageSource,
+        write_policy: crate::policy::WritePolicy,
+        path_policy: crate::policy::PathPolicy,
+        file: Option<String>,
+    ) -> Self {
+        self.policy_meta = Some(Box::new(ErrorPolicyMeta {
+            storage_profile: profile.as_str().into(),
+            profile_source: profile_source.as_str().into(),
+            storage_source: storage_source.as_str().into(),
+            write_policy: write_policy.as_str().into(),
+            path_policy: path_policy.as_str().into(),
+            file,
+        }));
+        self
+    }
+
+    pub fn sanitize_private_path(mut self, default_location: &str) -> Self {
+        if !matches!(
+            self.code,
+            "io_error"
+                | "permission_denied"
+                | "not_found"
+                | "lock_timeout"
+                | "invalid_repository"
+                | "unsupported_filesystem"
+                | "unsafe_journal_symlink"
+                | "insecure_private_permissions"
+        ) {
+            return self;
+        }
+        let location = self
+            .details
+            .get("location")
+            .and_then(Value::as_str)
+            .filter(|location| !location.is_empty())
+            .unwrap_or(default_location)
+            .to_string();
+        let os_kind = self
+            .details
+            .get("os_kind")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        self.message = match self.code {
+            "permission_denied" => "permission denied for the selected private location",
+            "not_found" => "the selected private journal was not found",
+            "lock_timeout" => "timed out waiting for the selected private journal lock",
+            "invalid_repository" => "the nearest Git metadata is invalid",
+            "unsupported_filesystem" => "the selected private filesystem is unsupported",
+            "unsafe_journal_symlink" => "the selected private journal must not be a symlink",
+            "insecure_private_permissions" => {
+                "implicit private storage is accessible beyond the current user"
+            }
+            _ => "I/O error for the selected private location",
+        }
+        .into();
+        self.details = json!({ "location": location });
+        if let Some(os_kind) = os_kind {
+            self.details["os_kind"] = json!(os_kind);
+        }
+        self.suggested_fix =
+            "Review the selected private location without pasting its path into logs.".into();
+        self
     }
 
     fn new(
@@ -275,7 +400,32 @@ impl AppError {
             retryable,
             suggested_fix: suggested_fix.into(),
             exit_code: exit_code_for(code),
+            policy_meta: None,
         }
+    }
+}
+
+fn known_location(path: &std::path::Path) -> Option<&'static str> {
+    match path.to_str() {
+        Some("stdin") => Some("stdin"),
+        Some("stdout") => Some("stdout"),
+        Some(".") => Some("current_working_directory"),
+        _ => None,
+    }
+}
+
+fn os_kind(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::NotFound => "not-found",
+        std::io::ErrorKind::PermissionDenied => "permission-denied",
+        std::io::ErrorKind::AlreadyExists => "already-exists",
+        std::io::ErrorKind::WouldBlock => "would-block",
+        std::io::ErrorKind::InvalidInput => "invalid-input",
+        std::io::ErrorKind::InvalidData => "invalid-data",
+        std::io::ErrorKind::TimedOut => "timed-out",
+        std::io::ErrorKind::WriteZero => "write-zero",
+        std::io::ErrorKind::UnexpectedEof => "unexpected-eof",
+        _ => "other",
     }
 }
 

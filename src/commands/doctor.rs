@@ -2,7 +2,7 @@ use crate::error::{AppError, AppResult};
 use crate::output::{self, Meta};
 use crate::policy::{PolicyContext, StorageProfile};
 use crate::store;
-use crate::{CutRecord, ResolveRecord, compute_id};
+use crate::{CutRecord, PathEncoding, RecordPathPolicy, ResolveRecord, compute_id};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -14,6 +14,8 @@ pub struct DoctorData {
     pub healthy: bool,
     pub findings: Vec<Finding>,
     pub checked_lines: usize,
+    #[serde(skip)]
+    pub legacy_path_records: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,13 +25,14 @@ pub struct Finding {
     pub message: String,
 }
 
-pub fn run(context: PolicyContext, pretty: bool) -> AppResult<i32> {
+pub fn run(context: &PolicyContext, pretty: bool) -> AppResult<i32> {
     let resolved = &context.storage;
     let mut warnings = resolved.warnings.clone();
     let empty = || DoctorData {
         healthy: true,
         findings: Vec::new(),
         checked_lines: 0,
+        legacy_path_records: 0,
     };
     let (mut data, file_existed) = if let Some(path) = resolved.path.as_deref() {
         match store::with_shared_resolved(resolved, |log| {
@@ -64,6 +67,12 @@ pub fn run(context: PolicyContext, pretty: bool) -> AppResult<i32> {
         });
         data.healthy = false;
     }
+    if context.profile == StorageProfile::Private && data.legacy_path_records > 0 {
+        warnings.push(format!(
+            "legacy_path_records_retained:{}",
+            data.legacy_path_records
+        ));
+    }
     if file_existed
         && context.profile == StorageProfile::Committed
         && let Some(repo) = resolved.repo.as_ref()
@@ -86,8 +95,13 @@ pub fn run(context: PolicyContext, pretty: bool) -> AppResult<i32> {
         });
         data.healthy = false;
     }
+    if context.profile == StorageProfile::Private {
+        for finding in &mut data.findings {
+            finding.message = private_finding_message(&finding.kind).into();
+        }
+    }
     let exit = i32::from(!data.healthy);
-    let mut meta = Meta::from_policy(&context, false);
+    let mut meta = Meta::from_policy(context, false);
     meta.warnings = warnings;
     output::write_success(data, pretty, meta)
         .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;
@@ -100,6 +114,7 @@ fn inspect(bytes: &[u8]) -> DoctorData {
     let mut cut_ids = HashSet::new();
     let mut resolves = Vec::<(usize, String)>::new();
     let mut checked_lines = 0;
+    let mut legacy_path_records = 0;
     let torn = !bytes.is_empty() && !bytes.ends_with(b"\n");
     let line_count = bytes.split(|byte| *byte == b'\n').count();
     for (index, raw) in bytes.split(|byte| *byte == b'\n').enumerate() {
@@ -142,6 +157,21 @@ fn inspect(bytes: &[u8]) -> DoctorData {
                             message: "cut ts is not a full RFC3339 timestamp".into(),
                         });
                         continue;
+                    }
+                    match (cut.path_policy, cut.path_encoding) {
+                        (None, None) => legacy_path_records += 1,
+                        (Some(RecordPathPolicy::Omitted), Some(PathEncoding::Omitted))
+                            if cut.cwd == "." && cut.repo.is_none() => {}
+                        (
+                            Some(RecordPathPolicy::LegacyAbsolute),
+                            Some(PathEncoding::Utf8 | PathEncoding::LossyUtf8),
+                        ) if looks_absolute(&cut.cwd)
+                            && cut.repo.as_deref().is_none_or(looks_absolute) => {}
+                        _ => findings.push(Finding {
+                            line,
+                            kind: "path_policy_mismatch".into(),
+                            message: "cut path fields do not match the declared path policy".into(),
+                        }),
                     }
                     let mut tags = cut.tags.clone();
                     tags.sort();
@@ -227,5 +257,32 @@ fn inspect(bytes: &[u8]) -> DoctorData {
         healthy: findings.is_empty(),
         findings,
         checked_lines,
+        legacy_path_records,
+    }
+}
+
+fn looks_absolute(value: &str) -> bool {
+    std::path::Path::new(value).is_absolute()
+        || value
+            .as_bytes()
+            .get(1..3)
+            .is_some_and(|bytes| bytes[0] == b':' && matches!(bytes[1], b'/' | b'\\'))
+        || value.starts_with("\\\\")
+}
+
+fn private_finding_message(kind: &str) -> &'static str {
+    match kind {
+        "torn_line" => "final physical line is not newline-terminated",
+        "malformed" => "record does not match the expected schema",
+        "unknown_kind" => "event kind is not recognized",
+        "orphan_resolve" => "resolve references an unknown cut",
+        "duplicate_cut" => "byte-identical duplicate cut found",
+        "id_conflict" => "cut identifier conflict found",
+        "conflict_marker" => "complete git conflict-marker line found",
+        "path_policy_mismatch" => "cut path fields do not match the declared path policy",
+        "insecure_private_permissions" => {
+            "implicit private storage is accessible beyond the current user"
+        }
+        _ => "journal diagnostic finding",
     }
 }

@@ -4,8 +4,9 @@ Bead: `br-hardened-papercuts-fork-x30.3`
 
 Decision date: 2026-07-12
 
-Status: accepted input to the consolidated hardened-contract ADR; not yet
-implemented
+Status: accepted input to the consolidated hardened-contract ADR; implemented
+for single-project path capture, strict Git resolution, and private projection
+by `br-hardened-papercuts-fork-x30.8`. Multi-project aliases remain deferred.
 
 ## 1. Decision
 

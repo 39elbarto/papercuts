@@ -31,12 +31,12 @@ pub fn run(cli: Cli) -> AppResult<i32> {
                     allow_sensitive: args.allow_sensitive.clone(),
                 },
             )?;
-            add::run(args, context, pretty)
+            add::run(args, &context, pretty).map_err(|error| error.with_policy(&context))
         }
         Command::List(args) => {
             let context =
                 policy::resolve(file, profile, read_only, sensitive_policy, Operation::List)?;
-            list::run(args, context, pretty)
+            list::run(args, &context, pretty).map_err(|error| error.with_policy(&context))
         }
         Command::Resolve(args) => {
             let context = policy::resolve_with_preflight(
@@ -51,7 +51,7 @@ pub fn run(cli: Cli) -> AppResult<i32> {
                 },
                 || resolve::validate_id(&args.id),
             )?;
-            resolve::run(args, context, pretty)
+            resolve::run(args, &context, pretty).map_err(|error| error.with_policy(&context))
         }
         Command::Schema { target } => {
             output::write_success(schema::contract(target), pretty, output::Meta::new())
@@ -66,7 +66,7 @@ pub fn run(cli: Cli) -> AppResult<i32> {
                 sensitive_policy,
                 Operation::Doctor,
             )?;
-            doctor::run(context, pretty)
+            doctor::run(&context, pretty).map_err(|error| error.with_policy(&context))
         }
     }
 }

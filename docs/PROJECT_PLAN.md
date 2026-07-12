@@ -361,8 +361,8 @@ Status: complete through `docs/HARDENED_CONTRACT_ADR.md` and propagated Beads.
 
 ### Phase 2 — Safe record creation
 
-Status: in progress; `x30.7` profile/storage policy is implemented and the
-path-projection and sensitive-preflight slices remain gated by their own Beads.
+Status: in progress; `x30.7` profile/storage policy and `x30.8` path projection
+are implemented. The `x30.9` sensitive preflight remains the next gated slice.
 
 - implement shared profile/target/write/content policy resolution (`x30.7`);
 - implement strict Git resolution and path minimization (`x30.8`);

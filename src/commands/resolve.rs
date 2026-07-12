@@ -12,7 +12,7 @@ pub struct ResolveData {
     pub record: ListItem,
 }
 
-pub fn run(args: ResolveArgs, context: PolicyContext, pretty: bool) -> AppResult<i32> {
+pub fn run(args: ResolveArgs, context: &PolicyContext, pretty: bool) -> AppResult<i32> {
     let prefix = normalize_prefix(&args.id)?;
     let resolved = &context.storage;
     let path = resolved.path()?.to_path_buf();
@@ -78,13 +78,17 @@ pub fn run(args: ResolveArgs, context: PolicyContext, pretty: bool) -> AppResult
         }
         Err(error) => return Err(error),
     };
-    let mut meta = Meta::from_policy(&context, true);
+    let (record, retained_legacy) = context.project_item(record);
+    let mut meta = Meta::from_policy(context, true);
     meta.agent_source = Some(identity.source.into());
     if already_resolved {
         meta.warnings.push("already resolved".into());
     } else if args.dry_run {
         meta.warnings
             .push("dry run; no resolve event appended".into());
+    }
+    if context.profile == StorageProfile::Private && retained_legacy {
+        meta.warnings.push("legacy_path_records_retained:1".into());
     }
     output::write_success(ResolveData { changed, record }, pretty, meta)
         .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;
@@ -102,7 +106,7 @@ fn normalize_prefix(input: &str) -> AppResult<String> {
         .map_or(input, |_| &input[3..]);
     if prefix.len() < 4 || !prefix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(AppError::invalid_argument(
-            format!("invalid papercut ID prefix '{input}'"),
+            "invalid papercut ID prefix",
             "Use `papercuts list --status all` and pass at least 4 hexadecimal digits, with optional pc_ prefix.",
         ));
     }
@@ -123,10 +127,10 @@ fn match_id(prefix: &str, items: &[ListItem]) -> AppResult<String> {
     candidates.sort();
     match candidates.as_slice() {
         [] => Err(AppError::not_found(
-            format!("no papercut matches ID prefix '{prefix}'"),
+            "no papercut matches the ID prefix",
             "Run `papercuts list --status all` and retry with a listed ID.",
         )),
         [id] => Ok(id.clone()),
-        _ => Err(AppError::ambiguous_id(prefix, candidates)),
+        _ => Err(AppError::ambiguous_id(candidates)),
     }
 }

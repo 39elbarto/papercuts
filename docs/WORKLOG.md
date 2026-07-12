@@ -527,3 +527,92 @@ metadata) and `x30.9` (local sensitive-data preflight). The graph remains a DAG
 with zero cycles, and `bv --robot-next` selects `x30.8` as the next highest-
 impact ready slice. Keep the two responsibilities separate despite their later
 shared schema and acceptance dependencies.
+
+## 2026-07-12 — Privacy-preserving path and project metadata implementation
+
+### Outcome
+
+- Completed `br-hardened-papercuts-fork-x30.8` as the second phase-2 Rust
+  implementation slice.
+- Added typed `path_policy` and `path_encoding` record fields without changing
+  cut-ID inputs. New private records write the exact omitted sentinels; the
+  committed compatibility profile labels retained absolute paths as UTF-8 or
+  lossy UTF-8.
+- Projected contract-1 and legacy-absolute cuts on every private add, duplicate,
+  list, Markdown, resolve, already-resolved, and doctor response without
+  rewriting source journal bytes.
+- Implemented one native strict-Git resolver for ordinary repositories, linked
+  worktrees, and submodule-shaped gitdir files. It validates the nearest marker,
+  `HEAD`, common `objects` and `config`, native non-UTF-8 metadata on Unix,
+  symlinks, and exact LF/CRLF line grammar without invoking Git.
+- Preserved operating-system symlink and parent-traversal semantics until
+  canonicalization, so metadata such as `route/../admin` cannot be redirected
+  by premature lexical normalization.
+- Added private-safe parser, repository, journal, lock, OS, and doctor
+  diagnostics with opaque location codes and no `meta.file`; committed output
+  keeps its explicitly warned compatibility behavior.
+- Updated the transitional contract-2 schema and status docs. Sensitive-content
+  scanning remains explicitly pending `x30.9`, and the fork still makes no
+  hardened-release claim.
+
+### Review findings integrated
+
+The fresh-eyes cross-review found two high-severity issues and one diagnostic
+issue, all corrected and re-reviewed:
+
+- Git metadata paths were lexically collapsing `..` before `canonicalize`,
+  which changes semantics when an earlier component is a symlink;
+- private doctor findings could repeat an unknown enum, kind, or ID from a
+  malformed source record;
+- invalid nearest-Git metadata used a journal location code instead of the
+  opaque `repository_marker` code.
+
+The bounded re-review passed the fixes and their unique-sentinel regression
+tests with no new finding. Less central platform combinations such as native
+non-UTF-8 `commondir` and explicit journal names remain candidates for the
+exhaustive adversarial suite owned by `x30.11`.
+
+### Verification
+
+- Unit tests: 6 passed.
+- Black-box CLI tests: 47 passed, including exact private/committed records,
+  identical IDs, mixed-journal projection, private diagnostic sentinels,
+  worktree/submodule/bare/malformed repositories, native non-UTF-8 metadata,
+  symlink traversal, parser errors, and append-only readback.
+- Full test suite repeated five times after the final `store.rs` change: all
+  five runs passed with 47 CLI tests each.
+- The upstream `v0.1.0` binary successfully listed and diagnosed a new omitted
+  record. The journal SHA-256 was identical before and after both old-client
+  reads.
+- Clippy with warnings denied and formatting: pass.
+- Gitleaks: no leaks found across 18 commits and the working tree.
+- UBS `--diff`: completed with the known noisy Rust heuristics. Its critical
+  labels are test-only `panic!` and byte-comparison assertions; the remaining
+  inventory is predominantly test `unwrap`/assert usage and pre-existing
+  indexing, cast, clone, and allocation heuristics. No corresponding production
+  defect remained after Clippy, tests, manual review, or cross-review. The full
+  host-local report is `/tmp/papercuts-x30.8-ubs-final.log`.
+
+### Papercuts observed
+
+- `pc_956892a253f7`: a compatibility script was blocked because cleanup used
+  `rm -rf`; the check was split from cleanup.
+- `pc_12eb71985fb9`: this host redirects Cargo artifacts to a shared target
+  directory, so a repo-local `target/debug/papercuts` assumption failed; the
+  check switched to `cargo run`.
+- `pc_25d1e62997b9`: `zsh` reserves the read-only variable `status`; verification
+  wrappers now capture exit codes in `rc` or `exit_code`.
+
+### Rollback
+
+Revert the focused implementation commit through normal Git history. Existing
+private and committed journals remain append-only; do not delete, merge, move,
+or reconstruct them during rollback. Contract-1 readers continue to ignore the
+new optional record fields.
+
+### Next step
+
+Proceed to `br-hardened-papercuts-fork-x30.9`, the isolated sensitive-content
+preflight slice. Keep scanner decisions ahead of event/path assembly, preserve
+the stable ID contract, and leave consolidated schema/error finalization to
+`x30.10` and adversarial expansion to `x30.11`.

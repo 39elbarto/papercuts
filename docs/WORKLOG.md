@@ -360,3 +360,85 @@ before implementation begins.
 Publish the consolidated hardened-contract ADR in
 `br-hardened-papercuts-fork-x30.5`, reconciling storage, path, content policy,
 schema version, compatibility, and release naming before implementation begins.
+
+## 2026-07-12 — Hardened contract v2 architecture gate
+
+### Outcome
+
+- Completed `br-hardened-papercuts-fork-x30.5` as the phase-1 architecture
+  gate; Rust product code remains unchanged.
+- Added `docs/HARDENED_CONTRACT_ADR.md` as the normative, self-contained
+  contract for phase-2 implementation.
+- Selected machine contract exactly `2` and reconciled private/committed
+  profiles, target and policy precedence, read-only behavior, command-relevant
+  environment, lazy clock resolution, migration, path projection, sensitive
+  preflight, schema/errors, compatibility, rollback, and distribution.
+- Resolved or explicitly gated all eight original planning questions. The
+  multi-project interface is deferred behind pilot evidence and no longer
+  blocks single-project implementation.
+- Updated `docs/PROJECT_PLAN.md` from planning baseline to implementation-ready
+  state and refreshed the continuation prompt so resumed sessions begin with
+  the first unblocked implementation Bead.
+- Rewrote the phase-2 Bead outcomes, scopes, designs, tests, and acceptance
+  criteria with exact contract-2 terminology, then copied final decisions into
+  every affected implementation, acceptance, documentation, pilot, inventory,
+  release, tag, and adapter Bead.
+
+### Review findings integrated
+
+Six focused passes covered usability, security honesty, determinism,
+compatibility, migration/rollback, and Bead self-containment/dependencies.
+Material corrections included:
+
+- changed the override example to strict policy because an email is only a
+  warning under balanced mode and would make the override unused;
+- made schema independent of ambient environment and limited every other
+  command to environment values that can affect it;
+- kept `PAPERCUTS_FILE` and `HOME` in native path encoding while retaining
+  UTF-8 requirements for textual policy, agent, and clock values;
+- required parser, config, ID, and since errors to omit rejected argv/env
+  values instead of forwarding raw Clap messages;
+- fixed deterministic sorting for warnings and set-like arrays;
+- removed premature alias/digest acceptance requirements from the
+  single-project `x30.11` gate;
+- clarified that committed preserves repository-visible storage/projection but
+  is not an unchecked v0.1 or scanner-bypass mode;
+- limited implicit legacy migration detection to private profile-default
+  targets, leaving explicit file selection deliberate and independent.
+
+The final self-containment term audit passed for `x30.7` through `x30.21`, and
+the dependency graph remained acyclic.
+
+### Verification
+
+- Release build: pass.
+- Tests: 30 passed.
+- Clippy with warnings denied: pass.
+- Formatting and `git diff --check`: pass.
+- `papercuts doctor`: healthy, fifteen journal lines.
+- Gitleaks: no leaks found across 16 commits and the working tree.
+- Product files under `src/`, `tests/`, `Cargo.toml`, and `Cargo.lock` still
+  match `upstream/main`.
+- Exact fixed-clock record ID: `pc_94f5df71022d`, matching both contract-2 path
+  examples.
+- Beads graph: 22 nodes, 27 edges, zero cycles; `x30.7` is the next direct
+  implementation unblocker after this gate closes.
+- UBS: skipped because this slice changed only planning/docs, Beads, and the
+  append-only dogfood journal; no code, script, hook, or executable
+  configuration changed.
+
+### Papercuts observed
+
+- `skill-finder` could not search or auto-load because its required meta-skill
+  MCP tools were not exposed; installed planning and Beads skills were used
+  directly.
+- A long-document patch coupled unrelated section anchors, so one absent anchor
+  rejected all intended corrections; section-local patches were reliable.
+- An exact ID check initially omitted `PAPERCUTS_NOW`, producing a legitimate
+  different timestamp-derived ID; the fixed-clock retry matched the contract.
+
+### Next step
+
+Begin `br-hardened-papercuts-fork-x30.7`: implement the shared contract-2 typed
+policy and storage-resolution seam without widening into path projection or the
+scanner catalog owned by later Beads.

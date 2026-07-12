@@ -1,8 +1,8 @@
 # Papercuts Fork Project Plan
 
-Status: initial planning baseline
+Status: phase-1 hardened contract accepted; phase-2 implementation authorized
 
-Date: 2026-07-11
+Date: 2026-07-12
 
 Fork: `39elbarto/papercuts`
 
@@ -92,7 +92,8 @@ The fork must solve those problems without turning a small CLI into a platform.
 ### 5.1 First hardened release
 
 - explicit safe/private storage mode and documented discovery behavior;
-- an option to omit or relativize `cwd` and repository paths;
+- automatic `cwd` and repository-path omission in the private profile, with an
+  explicit committed compatibility projection;
 - a bounded sensitive-data preflight with structured warnings/refusals;
 - dry-run coverage for every policy decision;
 - canonical `AGENTS.md` instructions that respect read-only boundaries;
@@ -209,13 +210,35 @@ summary:
 This is planned behavior only. The current upstream-compatible binary does not
 yet enforce the scanner, size bounds, policy modes, or override contract.
 
-## 7. Decisions still open
+### 6.4 Accepted consolidated contract
 
-These must be resolved in planning before implementation:
+[`HARDENED_CONTRACT_ADR.md`](HARDENED_CONTRACT_ADR.md) is the normative
+phase-2 contract. It selects machine contract 2, reconciles evaluation and
+side-effect order across the three policy ADRs, defines exact records,
+metadata, error codes, compatibility and rollback, and separates Rust
+mechanism from repository/harness authorization policy.
 
-1. What is the smallest useful cross-project review interface?
+Implementation remains dependency-ordered through Beads. Closing the
+architecture gate authorizes `br-hardened-papercuts-fork-x30.7` first; it does
+not mean the current binary implements contract 2.
 
-Until these decisions are recorded, do not start broad implementation.
+## 7. Planning decisions
+
+All eight original planning decisions are resolved or deliberately gated:
+
+| Decision | Resolution |
+|---|---|
+| default profile | private; committed is explicit |
+| warn versus refuse | private balanced; committed strict |
+| deterministic content checks | bounded offline policy version 1; no exhaustive claim |
+| automatic paths | omitted in private; labeled legacy absolute in committed |
+| private target | validated Git common directory; explicit file outside Git |
+| package/binary name | retained only through exact-SHA isolated pilot; later rename gate |
+| upstream boundary | generic contract-1 fixes isolated; fork policy stays fork-only |
+| cross-project review | deferred to `x30.17` after pilot, with explicit allowlist/no-scan boundary |
+
+The deferred cross-project surface is not part of the first single-project
+contract and does not block phase-2 implementation.
 
 ## 8. Threat model
 
@@ -265,8 +288,8 @@ Required posture:
 - Integrate upstream on dated sync branches and merge through reviewed fork
   pull requests. Never rebase, reset, or force-push public `main`; revert a bad
   public integration with a normal rollback pull request.
-- Do not change contract version `1` silently; any output or record-shape change
-  requires an explicit compatibility decision and schema tests.
+- The first hardened machine contract is exactly `2`; schema and compatibility
+  tests must pin it, while contract-1 journal lines remain readable.
 - Preserve the MIT license and upstream attribution.
 
 ## 10. Verification gates
@@ -303,8 +326,9 @@ Security acceptance must additionally prove:
 
 ## 11. Rollback strategy
 
-- Keep upstream `v0.1.0` behavior reachable through a documented compatibility
-  mode until a breaking release decision is made.
+- Keep repository-visible v0.1 storage/projection reachable through the
+  committed profile, but do not describe it as unchecked v0.1 behavior. Exact
+  unchecked rollback requires the explicitly selected upstream v0.1 binary.
 - Implement safe changes behind explicit, testable configuration boundaries.
 - Revert individual focused commits instead of rewriting public history.
 - Never auto-migrate or rewrite an existing journal without dry-run, backup, and
@@ -333,12 +357,14 @@ Exit: fork is public, recoverable, cleanly tracked, and ready for design review.
 
 Exit: decisions are explicit and implementation tasks have acceptance criteria.
 
+Status: complete through `docs/HARDENED_CONTRACT_ADR.md` and propagated Beads.
+
 ### Phase 2 — Safe record creation
 
-- implement path minimization;
-- implement sensitive-data guardrails;
-- add migration-safe flags/configuration;
-- update schema and exhaustive tests;
+- implement shared profile/target/write/content policy resolution (`x30.7`);
+- implement strict Git resolution and path minimization (`x30.8`);
+- implement sensitive-data guardrails (`x30.9`);
+- update contract-2 schema/errors (`x30.10`) and exhaustive tests (`x30.11`);
 - run adversarial review and the full gate.
 
 Exit: a single-project pilot can log without publishing unnecessary context.

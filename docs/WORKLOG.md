@@ -909,3 +909,36 @@ rollback remains a profile/binary selection decision.
 
 Proceed automatically to `x30.13` and run the hardened single-project release
 gate against the committed SHA before planning any pilot rollout.
+
+## 2026-07-12 — Hardened single-project release gate
+
+### Verdict
+
+`GO` for exact SHA `804d2b17e65edd865f3dc6e0ec05939aa65cf1ee` in an
+isolated-path, allowlisted single-project pilot only. General release,
+publication, PATH shadowing, and multi-project rollout remain blocked.
+
+### Evidence
+
+- Fork identity, disabled upstream push, GitHub parent, remotes, merge base,
+  and exact SHAs verified; fork is 16 ahead and 0 behind upstream.
+- Full 17 unit + 53 CLI + 10 acceptance suite, release build, Clippy, fmt,
+  runbook lifecycle, sanitized security runner, and five repetitions of all
+  three eight-way race tests passed.
+- 10,000-iteration maximum-payload benchmark passed with p95 0.036310 ms and
+  maximum 0.802956 ms against 5 ms / 20 ms budgets.
+- Gitleaks scanned all 24 public commits with no leaks. The focused artifact
+  contained no local absolute paths or acceptance sentinels.
+- Locked licenses had no missing declarations or duplicate versions. Isolated
+  `cargo-audit` reported zero vulnerabilities and no warnings.
+- Dogfood journal remained healthy at 20 lines; compatibility, migration, and
+  selection-only rollback evidence remained valid.
+
+Full command, SHA, benchmark, dependency, residual-risk, and rollback evidence
+is in `docs/evidence/x30.13-single-project-release-gate-2026-07-12.md`.
+
+### Next step
+
+Proceed to `x30.14` to design the bounded pilot. Planning must name at most four
+allowlisted repositories and must not modify them without a separate execution
+decision.

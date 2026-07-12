@@ -5,9 +5,10 @@
 > implementing its accepted hardened contract in dependency-ordered slices.
 > The profile/storage, privacy-preserving path, and bounded sensitive-content
 > preflight, contract-2 compatibility, and adversarial single-project
-> acceptance surfaces and operator instructions are implemented, while the
-> independent release gate remains pending. Do not treat the fork as hardened yet; see the
-> live status in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
+> acceptance surfaces and operator instructions are implemented. The
+> single-project gate passed for exact SHA `804d2b1`; that SHA is eligible only
+> for an isolated, allowlisted pilot—not general release or publication. See
+> the live status in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 
 A tiny CLI that gives AI agents a complaint box.
 

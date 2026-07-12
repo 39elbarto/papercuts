@@ -365,12 +365,12 @@ Status: complete through `docs/HARDENED_CONTRACT_ADR.md` and propagated Beads.
 
 ### Phase 2 — Safe record creation
 
-Status: in progress; `x30.7` profile/storage policy, `x30.8` path projection,
+Status: complete; `x30.7` profile/storage policy, `x30.8` path projection,
 `x30.9` sensitive preflight, `x30.10` consolidated contract-2 schema, errors,
 metadata, and compatibility, and `x30.11` independent adversarial acceptance
 are implemented. `x30.12` safe single-project instructions and operator review
-runbook are also implemented. `x30.13` is the next dependency-ordered release
-gate.
+runbook are also implemented. `x30.13` passed for exact SHA `804d2b1`; only an
+isolated allowlisted pilot may proceed.
 
 - implement shared profile/target/write/content policy resolution (`x30.7`);
 - implement strict Git resolution and path minimization (`x30.8`);
@@ -381,6 +381,9 @@ gate.
 Exit: a single-project pilot can log without publishing unnecessary context.
 
 ### Phase 3 — Pilot operating workflow
+
+Status: ready for bounded planning in `x30.14`; no target repository has been
+modified by the release gate.
 
 - install the forked binary under an unambiguous version;
 - pilot in `papercuts`, `acfs-workbench`, and at most two other active projects;

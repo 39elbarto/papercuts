@@ -123,6 +123,9 @@ pub fn run(args: AddArgs, context: &PolicyContext, pretty: bool) -> AppResult<i3
     if context.profile == StorageProfile::Private && retained_legacy {
         warnings.push("legacy_path_records_retained:1".into());
     }
+    if record.content_policy.is_none() {
+        warnings.push("legacy_unscanned_records:1".into());
+    }
     let mut meta = Meta::from_policy(context, true);
     meta.agent_source = Some(identity.source.into());
     meta.warnings.extend(warnings);

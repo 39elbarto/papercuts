@@ -46,10 +46,21 @@ pub fn run(args: ListArgs, context: &PolicyContext, pretty: bool) -> AppResult<i
     };
     warnings.extend(folded.warnings);
     let mut legacy_path_records = 0usize;
+    let mut legacy_unscanned_records = 0usize;
     let projected_items: Vec<_> = folded
         .items
         .into_iter()
         .map(|item| {
+            if item.cut.content_policy.is_none() {
+                legacy_unscanned_records += 1;
+            }
+            if item
+                .resolution
+                .as_ref()
+                .is_some_and(|resolution| resolution.content_policy.is_none())
+            {
+                legacy_unscanned_records += 1;
+            }
             let (item, retained_legacy) = context.project_item(item);
             if retained_legacy {
                 legacy_path_records += 1;
@@ -60,6 +71,11 @@ pub fn run(args: ListArgs, context: &PolicyContext, pretty: bool) -> AppResult<i
     if context.profile == StorageProfile::Private && legacy_path_records > 0 {
         warnings.push(format!(
             "legacy_path_records_retained:{legacy_path_records}"
+        ));
+    }
+    if legacy_unscanned_records > 0 {
+        warnings.push(format!(
+            "legacy_unscanned_records:{legacy_unscanned_records}"
         ));
     }
     let since = args

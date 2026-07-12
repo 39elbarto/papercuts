@@ -3,12 +3,14 @@ use papercuts::commands::add::AddData;
 use papercuts::commands::doctor::DoctorData;
 use papercuts::commands::list::ListData;
 use papercuts::commands::resolve::ResolveData;
-use papercuts::error::exit_code_map;
+use papercuts::error::{ERROR_CONTRACT, exit_code_map};
 use papercuts::output::{ErrorEnvelope, SuccessEnvelope};
 use papercuts::policy::SensitiveCategory;
 use papercuts::sensitive::{ContentDecision, SensitiveField};
-use papercuts::{ItemStatus, PathEncoding, RecordPathPolicy, Severity, compute_id};
-use serde::de::DeserializeOwned;
+use papercuts::{
+    CutRecord, ItemStatus, PathEncoding, RecordPathPolicy, ResolveRecord, Severity, compute_id,
+};
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -165,27 +167,198 @@ fn every_command_success_envelope_deserializes() {
             .contains("implemented by x30.9")
     );
     assert_eq!(
-        schema.data["success_envelope"]["meta"]["sensitive_policy"],
-        "balanced|strict on add/resolve"
+        schema.data["metadata"]["private_add_resolve"]["contract"],
+        2
     );
     let record_schema: SuccessEnvelope<Value> = success(&run(&["schema", "record"]));
-    assert!(
-        record_schema.data["records"]["cut"]["cwd"]
-            .as_str()
-            .unwrap()
-            .contains("under omitted")
-    );
-    assert!(
-        record_schema.data["implementation_status"]["path_projection"]
-            .as_str()
-            .unwrap()
-            .contains("implemented by x30.8")
+    assert_eq!(
+        record_schema.data["records"]["exact_examples"]["private_clean_cut"]["cwd"],
+        "."
     );
     assert_eq!(schema.data["exit_codes"]["74"], "I/O error");
     assert_eq!(schema.data["commands"]["doctor"]["read_only"], true);
 
     let expected = serde_json::to_value(exit_code_map()).unwrap();
     assert_eq!(schema.data["exit_codes"], expected);
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+struct V01CutRecord {
+    kind: String,
+    id: String,
+    ts: String,
+    agent: String,
+    text: String,
+    tags: Vec<String>,
+    severity: Severity,
+    cwd: String,
+    repo: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+struct V01ResolveRecord {
+    kind: String,
+    id: String,
+    ts: String,
+    agent: String,
+    note: Option<String>,
+}
+
+#[test]
+fn schema_contract2_is_static_exact_and_runtime_sourced() {
+    let output = command()
+        .env("PAPERCUTS_PROFILE", "rejected-profile-sentinel")
+        .env("PAPERCUTS_READ_ONLY", "rejected-bool-sentinel")
+        .env("PAPERCUTS_SENSITIVE_POLICY", "rejected-policy-sentinel")
+        .env("PAPERCUTS_ALLOW_SENSITIVE", "rejected-gate-sentinel")
+        .env("PAPERCUTS_AGENT", "rejected-agent-sentinel")
+        .env("PAPERCUTS_NOW", "rejected-clock-sentinel")
+        .env("PAPERCUTS_FILE", "/rejected/path/sentinel")
+        .env_remove("HOME")
+        .arg("schema")
+        .output()
+        .unwrap();
+    let schema: SuccessEnvelope<Value> = success(&output);
+    assert_eq!(schema.meta.contract, 2);
+    assert_eq!(schema.meta.storage_profile, None);
+    let rendered = String::from_utf8(output.stdout).unwrap();
+    for sentinel in [
+        "rejected-profile-sentinel",
+        "rejected-bool-sentinel",
+        "rejected-policy-sentinel",
+        "rejected-gate-sentinel",
+        "rejected-agent-sentinel",
+        "rejected-clock-sentinel",
+        "/rejected/path/sentinel",
+    ] {
+        assert!(!rendered.contains(sentinel));
+    }
+
+    let categories = serde_json::to_value(SensitiveCategory::ALL).unwrap();
+    assert_eq!(schema.data["sensitive_content"]["categories"], categories);
+    let catalog = schema.data["errors"]["catalog"].as_array().unwrap();
+    assert_eq!(catalog.len(), ERROR_CONTRACT.len());
+    for contract in ERROR_CONTRACT {
+        let row = catalog
+            .iter()
+            .find(|row| row["code"] == contract.code)
+            .unwrap();
+        assert_eq!(row["exit_code"], contract.exit_code);
+        assert_eq!(row["retryable"], contract.retryable());
+        assert_eq!(row["description"], contract.description);
+    }
+    assert_eq!(
+        schema.data["exit_codes"],
+        serde_json::to_value(exit_code_map()).unwrap()
+    );
+    assert_eq!(schema.data["commands"]["add"]["appends"], true);
+    assert_eq!(schema.data["commands"]["list"]["may_create"], false);
+    assert_eq!(
+        schema.data["plaintext_exceptions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+
+    let private_value = schema.data["records"]["exact_examples"]["private_clean_cut"].clone();
+    let private: CutRecord = serde_json::from_value(private_value.clone()).unwrap();
+    assert_eq!(private.id, "pc_94f5df71022d");
+    assert_eq!(
+        compute_id(
+            &private.ts,
+            &private.agent,
+            &private.text,
+            private.severity,
+            &private.tags,
+        ),
+        private.id
+    );
+    let committed: CutRecord = serde_json::from_value(
+        schema.data["records"]["exact_examples"]["committed_clean_cut"].clone(),
+    )
+    .unwrap();
+    assert_eq!(committed.id, private.id);
+    let resolve_value = schema.data["records"]["exact_examples"]["resolve_event"].clone();
+    let resolve: ResolveRecord = serde_json::from_value(resolve_value.clone()).unwrap();
+    assert_eq!(resolve.id, private.id);
+
+    let v01_private: V01CutRecord = serde_json::from_value(private_value).unwrap();
+    let v01_resolve: V01ResolveRecord = serde_json::from_value(resolve_value).unwrap();
+    assert_eq!(v01_private.cwd, ".");
+    assert_eq!(v01_private.repo, None);
+    assert_eq!(v01_resolve.id, private.id);
+
+    for target in ["record", "error", "exit-codes"] {
+        let targeted: SuccessEnvelope<Value> = success(&run(&["schema", target]));
+        assert_eq!(targeted.data["contract"], 2);
+    }
+}
+
+#[test]
+fn legacy_unscanned_warnings_and_content_policy_mismatch_are_explicit() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("mixed.jsonl");
+    let ts = "2026-07-12T00:00:00.000Z";
+    let legacy_id = compute_id(ts, "tester", "legacy", Severity::Minor, &[]);
+    let invalid_id = compute_id(ts, "tester", "invalid audit", Severity::Minor, &[]);
+    let legacy = json!({"kind":"cut","id":legacy_id,"ts":ts,"agent":"tester","text":"legacy","tags":[],"severity":"minor","cwd":"/legacy/source","repo":null});
+    let invalid = json!({"kind":"cut","id":invalid_id,"ts":ts,"agent":"tester","text":"invalid audit","tags":[],"severity":"minor","cwd":".","repo":null,"path_policy":"omitted","path_encoding":"omitted","content_policy":{"version":2,"mode":"balanced","decision":"clean","categories":[],"fields":[]}});
+    std::fs::write(&file, format!("{legacy}\n{invalid}\n")).unwrap();
+
+    let listed: SuccessEnvelope<ListData> = success(
+        &command()
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&file)
+            .args(["list", "--status", "all"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        listed
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "legacy_unscanned_records:1")
+    );
+    assert!(
+        listed
+            .data
+            .items
+            .iter()
+            .any(|item| item.cut.content_policy.is_none())
+    );
+
+    let doctor_output = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .arg("doctor")
+        .output()
+        .unwrap();
+    assert_eq!(doctor_output.status.code(), Some(1));
+    assert!(doctor_output.stderr.is_empty());
+    let doctor: SuccessEnvelope<DoctorData> =
+        serde_json::from_slice(&doctor_output.stdout).unwrap();
+    assert!(
+        doctor
+            .data
+            .findings
+            .iter()
+            .any(|finding| finding.kind == "content_policy_mismatch")
+    );
+    assert!(
+        doctor
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "legacy_unscanned_records:1")
+    );
 }
 
 #[test]
@@ -414,6 +587,79 @@ fn structured_error_exit_matrix_and_help_exceptions() {
         String::from_utf8_lossy(&version.stdout),
         "papercuts 0.1.0\n"
     );
+}
+
+#[test]
+fn rejected_values_never_echo_and_suggested_fixes_never_weaken_policy() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("cuts.jsonl");
+    add(&file, "existing");
+    let cases = [
+        (
+            "rejected-profile-argv-sentinel",
+            command()
+                .args(["--profile", "rejected-profile-argv-sentinel", "list"])
+                .output()
+                .unwrap(),
+        ),
+        (
+            "rejected-profile-env-sentinel",
+            command()
+                .env("PAPERCUTS_PROFILE", "rejected-profile-env-sentinel")
+                .arg("list")
+                .output()
+                .unwrap(),
+        ),
+        (
+            "rejected-since-sentinel",
+            command()
+                .arg("--file")
+                .arg(&file)
+                .args(["list", "--since", "rejected-since-sentinel"])
+                .output()
+                .unwrap(),
+        ),
+        (
+            "rejected-id-sentinel",
+            command()
+                .arg("--file")
+                .arg(&file)
+                .args(["resolve", "rejected-id-sentinel"])
+                .output()
+                .unwrap(),
+        ),
+        (
+            "rejected-wildcard-sentinel",
+            command()
+                .arg("--file")
+                .arg(&file)
+                .args([
+                    "add",
+                    "x",
+                    "--allow-sensitive",
+                    "rejected-wildcard-sentinel",
+                ])
+                .output()
+                .unwrap(),
+        ),
+    ];
+    for (sentinel, output) in cases {
+        assert!(!output.status.success(), "{sentinel}");
+        assert!(output.stdout.is_empty(), "{sentinel}");
+        let stderr = String::from_utf8(output.stderr.clone()).unwrap();
+        assert!(!stderr.contains(sentinel), "{sentinel}: {stderr}");
+        let envelope: ErrorEnvelope = serde_json::from_slice(&output.stderr).unwrap();
+        let fix = envelope.error.suggested_fix.to_ascii_lowercase();
+        for forbidden in [
+            "--profile committed",
+            "papercuts_allow_sensitive",
+            "--allow-sensitive",
+            "disable read-only",
+            "read_only=false",
+        ] {
+            assert!(!fix.contains(forbidden), "{sentinel}: {fix}");
+        }
+    }
 }
 
 #[test]

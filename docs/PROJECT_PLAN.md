@@ -366,8 +366,9 @@ Status: complete through `docs/HARDENED_CONTRACT_ADR.md` and propagated Beads.
 ### Phase 2 — Safe record creation
 
 Status: in progress; `x30.7` profile/storage policy, `x30.8` path projection,
-and `x30.9` sensitive preflight are implemented. `x30.10` consolidated
-schema/error/compatibility work is the next dependency-ordered slice.
+`x30.9` sensitive preflight, and `x30.10` consolidated contract-2 schema,
+errors, metadata, and compatibility are implemented. `x30.11` independent
+adversarial acceptance is the next dependency-ordered slice.
 
 - implement shared profile/target/write/content policy resolution (`x30.7`);
 - implement strict Git resolution and path minimization (`x30.8`);

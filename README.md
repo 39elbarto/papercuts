@@ -4,8 +4,8 @@
 > [`treygoff24/papercuts`](https://github.com/treygoff24/papercuts). The fork is
 > implementing its accepted hardened contract in dependency-ordered slices.
 > The profile/storage, privacy-preserving path, and bounded sensitive-content
-> preflight seams are implemented, while consolidated compatibility work,
-> adversarial acceptance, and the release gate remain pending. Do not treat the
+> preflight and contract-2 compatibility surfaces are implemented, while
+> adversarial acceptance and the release gate remain pending. Do not treat the
 > fork as hardened yet; see the
 > live status in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 

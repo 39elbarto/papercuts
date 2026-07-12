@@ -16,6 +16,8 @@ pub struct DoctorData {
     pub checked_lines: usize,
     #[serde(skip)]
     pub legacy_path_records: usize,
+    #[serde(skip)]
+    pub legacy_unscanned_records: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,6 +35,7 @@ pub fn run(context: &PolicyContext, pretty: bool) -> AppResult<i32> {
         findings: Vec::new(),
         checked_lines: 0,
         legacy_path_records: 0,
+        legacy_unscanned_records: 0,
     };
     let (mut data, file_existed) = if let Some(path) = resolved.path.as_deref() {
         match store::with_shared_resolved(resolved, |log| {
@@ -71,6 +74,12 @@ pub fn run(context: &PolicyContext, pretty: bool) -> AppResult<i32> {
         warnings.push(format!(
             "legacy_path_records_retained:{}",
             data.legacy_path_records
+        ));
+    }
+    if data.legacy_unscanned_records > 0 {
+        warnings.push(format!(
+            "legacy_unscanned_records:{}",
+            data.legacy_unscanned_records
         ));
     }
     if file_existed
@@ -115,6 +124,7 @@ fn inspect(bytes: &[u8]) -> DoctorData {
     let mut resolves = Vec::<(usize, String)>::new();
     let mut checked_lines = 0;
     let mut legacy_path_records = 0;
+    let mut legacy_unscanned_records = 0;
     let torn = !bytes.is_empty() && !bytes.ends_with(b"\n");
     let line_count = bytes.split(|byte| *byte == b'\n').count();
     for (index, raw) in bytes.split(|byte| *byte == b'\n').enumerate() {
@@ -173,6 +183,15 @@ fn inspect(bytes: &[u8]) -> DoctorData {
                             message: "cut path fields do not match the declared path policy".into(),
                         }),
                     }
+                    match cut.content_policy.as_ref() {
+                        None => legacy_unscanned_records += 1,
+                        Some(policy) if !policy.is_valid_v1() => findings.push(Finding {
+                            line,
+                            kind: "content_policy_mismatch".into(),
+                            message: "cut content policy violates version-1 invariants".into(),
+                        }),
+                        Some(_) => {}
+                    }
                     let mut tags = cut.tags.clone();
                     tags.sort();
                     let expected = compute_id(&cut.ts, &cut.agent, &cut.text, cut.severity, &tags);
@@ -224,6 +243,15 @@ fn inspect(bytes: &[u8]) -> DoctorData {
                         });
                         continue;
                     }
+                    match resolve.content_policy.as_ref() {
+                        None => legacy_unscanned_records += 1,
+                        Some(policy) if !policy.is_valid_v1() => findings.push(Finding {
+                            line,
+                            kind: "content_policy_mismatch".into(),
+                            message: "resolve content policy violates version-1 invariants".into(),
+                        }),
+                        Some(_) => {}
+                    }
                     resolves.push((line, resolve.id));
                 }
                 Err(error) => findings.push(Finding {
@@ -258,6 +286,7 @@ fn inspect(bytes: &[u8]) -> DoctorData {
         findings,
         checked_lines,
         legacy_path_records,
+        legacy_unscanned_records,
     }
 }
 
@@ -280,6 +309,7 @@ fn private_finding_message(kind: &str) -> &'static str {
         "id_conflict" => "cut identifier conflict found",
         "conflict_marker" => "complete git conflict-marker line found",
         "path_policy_mismatch" => "cut path fields do not match the declared path policy",
+        "content_policy_mismatch" => "record content policy violates version-1 invariants",
         "insecure_private_permissions" => {
             "implicit private storage is accessible beyond the current user"
         }

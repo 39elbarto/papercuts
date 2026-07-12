@@ -101,6 +101,17 @@ pub fn run(args: ResolveArgs, context: &PolicyContext, pretty: bool) -> AppResul
     if context.profile == StorageProfile::Private && retained_legacy {
         meta.warnings.push("legacy_path_records_retained:1".into());
     }
+    let legacy_unscanned = usize::from(record.cut.content_policy.is_none())
+        + usize::from(
+            record
+                .resolution
+                .as_ref()
+                .is_some_and(|resolution| resolution.content_policy.is_none()),
+        );
+    if legacy_unscanned > 0 {
+        meta.warnings
+            .push(format!("legacy_unscanned_records:{legacy_unscanned}"));
+    }
     output::write_success(ResolveData { changed, record }, pretty, meta)
         .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;
     Ok(0)

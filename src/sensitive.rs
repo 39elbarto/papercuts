@@ -52,6 +52,35 @@ pub struct ContentPolicy {
     pub fields: Vec<SensitiveField>,
 }
 
+impl ContentPolicy {
+    pub fn is_valid_v1(&self) -> bool {
+        if self.version != POLICY_VERSION {
+            return false;
+        }
+        let mut categories = self.categories.clone();
+        categories.sort_by_key(|category| category.as_str());
+        categories.dedup();
+        let mut fields = self.fields.clone();
+        fields.sort_by_key(|field| field.as_str());
+        fields.dedup();
+        if categories != self.categories || fields != self.fields {
+            return false;
+        }
+        match self.decision {
+            ContentDecision::Clean => categories.is_empty() && fields.is_empty(),
+            ContentDecision::Warn => {
+                self.mode == SensitivePolicy::Balanced
+                    && !categories.is_empty()
+                    && !fields.is_empty()
+                    && categories
+                        .iter()
+                        .all(|category| !category.is_high_confidence())
+            }
+            ContentDecision::Override => !categories.is_empty() && !fields.is_empty(),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ScanInput<'a> {
     field: SensitiveField,
@@ -803,5 +832,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(split.decision, ContentDecision::Clean);
+    }
+
+    #[test]
+    fn persisted_audit_invariants_are_strict() {
+        let clean = audit(SensitivePolicy::Balanced, "ordinary friction").unwrap();
+        assert!(clean.is_valid_v1());
+        let mut invalid = clean.clone();
+        invalid.version = 2;
+        assert!(!invalid.is_valid_v1());
+        invalid = clean.clone();
+        invalid.categories = vec![SensitiveCategory::EmailAddress];
+        assert!(!invalid.is_valid_v1());
+
+        let warn = audit(SensitivePolicy::Balanced, "alice@example.invalid").unwrap();
+        assert!(warn.is_valid_v1());
+        invalid = warn.clone();
+        invalid.mode = SensitivePolicy::Strict;
+        assert!(!invalid.is_valid_v1());
+        invalid = warn.clone();
+        invalid.categories.push(SensitiveCategory::EmailAddress);
+        assert!(!invalid.is_valid_v1());
     }
 }

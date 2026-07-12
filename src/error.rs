@@ -34,6 +34,25 @@ pub struct ErrorContract {
     pub description: &'static str,
 }
 
+impl ErrorContract {
+    pub fn retryable(&self) -> bool {
+        self.code == "lock_timeout"
+    }
+}
+
+pub const EXIT_CONTRACT: &[(i32, &str)] = &[
+    (0, "success or empty result"),
+    (1, "doctor findings"),
+    (2, "invalid command arguments"),
+    (65, "invalid or refused input data"),
+    (66, "missing explicit file or unknown ID"),
+    (70, "internal error"),
+    (74, "I/O error"),
+    (75, "temporary lock timeout; retryable"),
+    (77, "permission denied or insecure private permissions"),
+    (78, "configuration or policy error"),
+];
+
 pub const ERROR_CONTRACT: &[ErrorContract] = &[
     ErrorContract {
         code: "invalid_argument",
@@ -134,13 +153,7 @@ pub fn error_codes() -> Vec<&'static str> {
 }
 
 pub fn exit_code_map() -> BTreeMap<i32, &'static str> {
-    let mut map = BTreeMap::new();
-    map.insert(0, "success or empty result");
-    for entry in ERROR_CONTRACT {
-        map.insert(entry.exit_code, entry.description);
-    }
-    map.insert(1, "doctor findings");
-    map
+    EXIT_CONTRACT.iter().copied().collect()
 }
 
 impl AppError {
@@ -481,6 +494,7 @@ fn os_kind(kind: std::io::ErrorKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
     use std::io::ErrorKind;
 
     #[test]
@@ -497,5 +511,27 @@ mod tests {
         let err = AppError::from_log_open(error, std::path::Path::new("/tmp/x"));
         assert_eq!(err.code, "not_found");
         assert_eq!(err.exit_code, 66);
+    }
+
+    #[test]
+    fn public_error_and_exit_contracts_are_unique_and_complete() {
+        let mut codes = HashSet::new();
+        for contract in ERROR_CONTRACT {
+            assert!(codes.insert(contract.code), "duplicate {}", contract.code);
+            assert_eq!(exit_code_for(contract.code), contract.exit_code);
+            assert!(!contract.description.is_empty());
+        }
+        let exits = exit_code_map();
+        assert_eq!(exits.len(), EXIT_CONTRACT.len());
+        for (code, description) in EXIT_CONTRACT {
+            assert_eq!(exits.get(code), Some(description));
+        }
+        assert!(ERROR_CONTRACT.iter().any(|entry| entry.retryable()));
+        assert!(
+            ERROR_CONTRACT
+                .iter()
+                .filter(|entry| entry.retryable())
+                .all(|entry| entry.code == "lock_timeout")
+        );
     }
 }

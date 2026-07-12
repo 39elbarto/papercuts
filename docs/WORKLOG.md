@@ -718,3 +718,80 @@ compatible hardened mode.
 Proceed to `x30.10` for consolidated schema, errors, and compatibility
 surfaces. Keep the already-implemented policy-v1 behavior stable and leave the
 independent adversarial expansion to `x30.11`.
+
+## 2026-07-12 — Contract-2 schema, diagnostics, and compatibility
+
+### Outcome
+
+- Completed the implementation scope of
+  `br-hardened-papercuts-fork-x30.10` after the storage, path, and content
+  shapes stabilized in `x30.7` through `x30.9`.
+- Replaced the transitional flat schema with a static structured contract that
+  publishes every command and annotation, global flag, relevant environment
+  variable, precedence rule, evaluation order, profile floor, storage and
+  migration state, strict repository grammar, path projection, metadata shape,
+  warning meaning, ID input/exclusion, content category/bound/limitation,
+  diagnostic rule, compatibility boundary, and rollback rule.
+- Added canonical private cut, committed cut, and resolve examples using the
+  ADR-owned `pc_94f5df71022d` ID and exact serialized field order. Tests parse
+  the examples into runtime record types and recompute the ID.
+- Kept error codes and category names runtime-sourced through
+  `ERROR_CONTRACT` and `SensitiveCategory::ALL`. Added a separate exact exit
+  dictionary so shared exits such as 65, 77, and 78 no longer inherit whichever
+  error description happened to be inserted last.
+- Added persisted `content_policy` invariant validation to doctor. Version,
+  decision, mode, category, field, sort, and dedup drift now produces the safe
+  `content_policy_mismatch` finding.
+- Added `legacy_unscanned_records:N` to add/duplicate, resolve, list, and doctor
+  projections without changing or synthesizing source audit fields.
+- Added black-box proof that schema ignores invalid ambient profile, target,
+  clock, agent, read-only, and content-policy environment. Rejected argv,
+  environment, ID, since, and category values are absent from errors, and
+  suggested fixes never recommend weakening write or content policy.
+
+### Compatibility evidence
+
+- Contract tests deserialize exact new cut and resolve examples through mirror
+  structs containing only the unchanged upstream v0.1 fields; unknown
+  contract-2 fields are ignored and the private sentinels remain `cwd: "."`
+  and `repo: null`.
+- Built the actual unchanged `upstream/main` source in an isolated temporary
+  checkout and created a new private contract-2 cut with the current binary.
+- The v0.1 binary listed the new cut and reported doctor healthy with exit 0.
+  Journal SHA-256 remained
+  `0f25c215424b4026f5b8790ad216897f3e19a121e465117a49013dd6fac38c09`
+  before and after both reads. This is parse/read compatibility only; the old
+  output intentionally drops unknown audit fields and remains contract 1.
+
+### Verification
+
+- Unit tests: 17 passed.
+- Black-box CLI tests: 53 passed.
+- Canonical schema targets `all`, `record`, `error`, and `exit-codes` all emit
+  contract exactly 2 with static metadata.
+- `cargo build --release`, `cargo test --all-features`,
+  `cargo clippy --all-targets --all-features -- -D warnings`, and
+  `cargo fmt --check`: pass.
+- `git diff --check`: pass.
+- Gitleaks scanned the full working tree with no leaks found.
+- The current binary diagnosed the four-entry private dogfood journal as
+  healthy with no findings and exit 0.
+- Scoped UBS completed across the changed command, error, policy, and test
+  files. Its non-zero inventory is the known Rust heuristic noise: test-only
+  `unwrap`/`assert`/`panic`, ordinary warning-string comparisons mislabeled as
+  secret comparisons, and bounds-guarded indexing. UBS independently reports
+  clean formatting, Clippy, cargo check, test build, unsafe usage, runtime-regex
+  inputs, and resource lifecycle. No production defect remained after review.
+
+### Rollback
+
+Revert the focused implementation through ordinary Git history. Do not rewrite
+journals, remove audit fields, or retroactively label legacy records. Older
+v0.1 readers remain selectable only with the documented loss of contract-2
+semantics and protections.
+
+### Next step
+
+Proceed to `x30.11` for independent adversarial unit and real-binary acceptance
+across every public surface. Keep `schema` static and treat any discovered
+runtime/schema drift as a defect rather than changing the contract silently.

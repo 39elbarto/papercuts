@@ -3,6 +3,7 @@ pub mod commands;
 pub mod error;
 pub mod output;
 pub mod policy;
+pub mod sensitive;
 pub mod store;
 
 use crate::error::{AppError, AppResult};
@@ -52,6 +53,8 @@ pub struct CutRecord {
     pub path_policy: Option<RecordPathPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path_encoding: Option<PathEncoding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_policy: Option<sensitive::ContentPolicy>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +79,8 @@ pub struct ResolveRecord {
     pub ts: String,
     pub agent: String,
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_policy: Option<sensitive::ContentPolicy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +88,8 @@ pub struct Resolution {
     pub ts: String,
     pub agent: String,
     pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_policy: Option<sensitive::ContentPolicy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

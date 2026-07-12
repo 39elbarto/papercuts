@@ -616,3 +616,105 @@ Proceed to `br-hardened-papercuts-fork-x30.9`, the isolated sensitive-content
 preflight slice. Keep scanner decisions ahead of event/path assembly, preserve
 the stable ID contract, and leave consolidated schema/error finalization to
 `x30.10` and adversarial expansion to `x30.11`.
+
+## 2026-07-12 — Bounded sensitive-data preflight implementation
+
+### Outcome
+
+- Completed the implementation scope of
+  `br-hardened-papercuts-fork-x30.9` as the third phase-2 Rust slice.
+- Added a pure, offline policy-v1 scanner with eleven bounded static patterns
+  covering all eight high-confidence and four medium-risk categories. Regex
+  compilation is process-local, size-limited, and independent of runtime
+  configuration, filesystem state, clocks, subprocesses, and network access.
+- Enforced the private `balanced` and committed `strict` floors already
+  resolved by the central policy seam. Category overrides now require the
+  existing environment gate, must exactly cover every refusing category, and
+  reject wildcard, partial, flag-only, and unused preauthorization paths.
+- Bounded text, stdin, notes, tags, tag count, agent names, and total scan
+  payload before event construction or journal open. Exact 10,000-byte LF and
+  CRLF stdin payloads are accepted after trailing-newline removal; oversize and
+  invalid UTF-8 inputs remain structured exit-65 failures.
+- Added `content_policy` to new cut and resolve events and to materialized
+  resolution output. Contract-1 events remain readable as legacy-unscanned and
+  are never rewritten; audit metadata remains outside the cut ID.
+- Added `sensitive_input` exit 65 with category/field-only details. Committed
+  sensitive refusals also suppress `meta.file`, preventing the selected target
+  from leaking through the shared error wrapper.
+- Preserved dry-run and duplicate semantics while moving the scanner before
+  clock access, event/ID construction, duplicate lookup, directory creation,
+  journal open, lock, read, or append.
+- Updated the transitional contract-2 schema, README status, and project plan.
+  Full compatibility wording and independent adversarial acceptance remain
+  owned by `x30.10` and `x30.11`; the fork still makes no hardened-release
+  claim.
+
+### Corpus and regression coverage
+
+- Unit corpus covers every private-key family, mixed-case Bearer/Basic headers,
+  HTTP/SSH/database credential URLs, YAML/dotenv/export/JSON assignments, every
+  GitHub/Slack/Stripe prefix, paired AKIA/ASIA material across fields, all
+  personal-identifier labels, Unix/macOS/Windows/UNC paths, and LF/CRLF config
+  blocks.
+- Negative controls cover every exact placeholder, shell variable references,
+  hashes, UUIDs, Bead IDs, publishable Stripe keys, unpaired AWS access IDs,
+  short prefixes, relative paths, single assignments, Unicode prose, encoded
+  material, and deliberately split vendor tokens.
+- Black-box tests cover warning persistence, strict refusal, two-key override,
+  no-echo/no-write sentinels, committed target suppression, invalid-clock and
+  duplicate ordering, dry-run parity, text/tag/agent/resolution-note fields,
+  exact and plus-one bounds, and unchanged journal bytes after refusal.
+
+### Performance evidence
+
+- Added `examples/policy_bench.rs`, which runs at least 10,000 release-mode
+  scans of the maximum legal add payload (11,152 bytes) while exercising all
+  twelve categories under an exact strict override.
+- Recorded evidence in
+  `docs/evidence/x30.9-sensitive-preflight-benchmark-2026-07-12.md` with host,
+  dirty source state, release binary SHA-256, exact command, and raw JSON.
+- Observed p50 0.023756 ms, p95 0.043114 ms, and maximum 0.125133 ms. The
+  acceptance budgets are p95 <= 5 ms and maximum <= 20 ms.
+
+### Verification
+
+- `cargo build --release`: pass.
+- `cargo test --all-features`: 15 unit tests and 50 black-box CLI tests pass.
+- Because the resolution fold in `store.rs` gained the resolve-event audit,
+  the full suite was repeated five times; all five runs passed with the same
+  15/50 counts.
+- `cargo clippy --all-targets --all-features -- -D warnings`: pass.
+- `cargo fmt --check` and `git diff --check`: pass.
+- Gitleaks initially identified twelve synthetic private-key, AWS, and Stripe
+  fixtures. Their source literals were split without changing runtime values;
+  the final full working-tree scan reports no leaks.
+- Scoped UBS completed across all changed Rust source, test, and benchmark
+  files. Its non-zero inventory is noisy Rust heuristics: test-only
+  `unwrap`/`assert`/`panic`, comparisons of fixture labels containing `token`,
+  bounds-guarded indexing, and the pre-existing native Git path join required
+  by the accepted path ADR. UBS also independently reports clean formatting,
+  Clippy, cargo check, test build, unsafe usage, runtime regex inputs, and
+  resource lifecycle. No production defect remained after review.
+
+### Papercuts observed
+
+- `pc_05f369a3f132`: Cargo accepts only one positional test-name filter per
+  `cargo test` invocation.
+- `pc_68a933e2fea9`: repository-local dogfood logging is blocked by the pending
+  legacy-journal migration and needs an approved explicit private target.
+- `pc_68f9f458a3de`: this host uses a shared `CARGO_TARGET_DIR`, so
+  repo-relative release artifact paths are not reliable.
+
+### Rollback
+
+Revert the focused implementation through normal Git history. Existing journal
+bytes remain append-only: do not delete, rewrite, strip `content_policy`, or
+retroactively label legacy records. Selecting the upstream binary removes the
+guardrail and must be treated as an explicit loss of protection, not as a
+compatible hardened mode.
+
+### Next step
+
+Proceed to `x30.10` for consolidated schema, errors, and compatibility
+surfaces. Keep the already-implemented policy-v1 behavior stable and leave the
+independent adversarial expansion to `x30.11`.

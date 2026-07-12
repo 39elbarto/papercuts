@@ -163,8 +163,9 @@ The storage and read-only decision is recorded in
   infer conversational authorization;
 - existing committed journals are never auto-migrated or merged.
 
-This is a planned contract. Product behavior remains upstream v0.1 until the
-consolidated ADR and implementation gates pass.
+Implemented by `x30.7`. The fork still withholds a hardened-release claim until
+the remaining compatibility, adversarial, documentation, and release gates
+pass.
 
 ### 6.2 Accepted path and project-identity direction
 
@@ -182,8 +183,8 @@ summary:
 - project names are external operator aliases in an allowlist, not record
   fields, path hashes, remote-derived IDs, or automatic basenames.
 
-This is planned behavior only until the consolidated ADR and implementation
-gates pass.
+Implemented by `x30.8`, including mixed-journal private projection and strict
+native Git metadata resolution. Remaining release gates still apply.
 
 ### 6.3 Accepted sensitive-data guardrail direction
 
@@ -207,8 +208,11 @@ summary:
 - new cut and resolve events carry `content_policy`; old events remain
   `legacy-unscanned` without rewrite.
 
-This is planned behavior only. The current upstream-compatible binary does not
-yet enforce the scanner, size bounds, policy modes, or override contract.
+Implemented by `x30.9`, including bounded stdin and persisted-field validation,
+policy-v1 scanning, exact overrides, category-only refusal diagnostics,
+contract-2 audit objects, synthetic corpus coverage, and release benchmark
+evidence. Consolidated compatibility (`x30.10`) and the independent adversarial
+acceptance suite (`x30.11`) remain pending.
 
 ### 6.4 Accepted consolidated contract
 
@@ -361,8 +365,9 @@ Status: complete through `docs/HARDENED_CONTRACT_ADR.md` and propagated Beads.
 
 ### Phase 2 — Safe record creation
 
-Status: in progress; `x30.7` profile/storage policy and `x30.8` path projection
-are implemented. The `x30.9` sensitive preflight remains the next gated slice.
+Status: in progress; `x30.7` profile/storage policy, `x30.8` path projection,
+and `x30.9` sensitive preflight are implemented. `x30.10` consolidated
+schema/error/compatibility work is the next dependency-ordered slice.
 
 - implement shared profile/target/write/content policy resolution (`x30.7`);
 - implement strict Git resolution and path minimization (`x30.8`);

@@ -68,6 +68,54 @@ pub enum SensitiveCategory {
     ConfigBlock,
 }
 
+impl SensitiveCategory {
+    pub const ALL: [Self; 12] = [
+        Self::PrivateKey,
+        Self::AuthorizationHeader,
+        Self::CredentialUrl,
+        Self::SecretAssignment,
+        Self::GithubToken,
+        Self::SlackToken,
+        Self::StripeSecretKey,
+        Self::AwsCredentialPair,
+        Self::EmailAddress,
+        Self::PersonalIdentifier,
+        Self::FilesystemPath,
+        Self::ConfigBlock,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PrivateKey => "private_key",
+            Self::AuthorizationHeader => "authorization_header",
+            Self::CredentialUrl => "credential_url",
+            Self::SecretAssignment => "secret_assignment",
+            Self::GithubToken => "github_token",
+            Self::SlackToken => "slack_token",
+            Self::StripeSecretKey => "stripe_secret_key",
+            Self::AwsCredentialPair => "aws_credential_pair",
+            Self::EmailAddress => "email_address",
+            Self::PersonalIdentifier => "personal_identifier",
+            Self::FilesystemPath => "filesystem_path",
+            Self::ConfigBlock => "config_block",
+        }
+    }
+
+    pub fn is_high_confidence(self) -> bool {
+        matches!(
+            self,
+            Self::PrivateKey
+                | Self::AuthorizationHeader
+                | Self::CredentialUrl
+                | Self::SecretAssignment
+                | Self::GithubToken
+                | Self::SlackToken
+                | Self::StripeSecretKey
+                | Self::AwsCredentialPair
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileSource {
     Flag,

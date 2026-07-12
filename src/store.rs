@@ -673,6 +673,7 @@ pub fn fold_bytes(bytes: &[u8]) -> FoldResult {
                 ts: resolve.ts.clone(),
                 agent: resolve.agent.clone(),
                 note: resolve.note.clone(),
+                content_policy: resolve.content_policy.clone(),
             });
             ListItem {
                 status: if resolution.is_some() {

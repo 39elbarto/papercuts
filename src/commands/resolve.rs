@@ -2,6 +2,7 @@ use crate::cli::ResolveArgs;
 use crate::error::{AppError, AppResult};
 use crate::output::{self, Meta};
 use crate::policy::{PolicyContext, StorageProfile};
+use crate::sensitive;
 use crate::store;
 use crate::{ItemStatus, ListItem, Resolution, ResolveRecord, format_timestamp};
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,6 @@ pub struct ResolveData {
 pub fn run(args: ResolveArgs, context: &PolicyContext, pretty: bool) -> AppResult<i32> {
     let prefix = normalize_prefix(&args.id)?;
     let resolved = &context.storage;
-    let path = resolved.path()?.to_path_buf();
     let identity = context
         .agent
         .as_ref()
@@ -27,9 +27,18 @@ pub fn run(args: ResolveArgs, context: &PolicyContext, pretty: bool) -> AppResul
         ));
     }
     let agent = identity.value.clone();
+    let note = args.note;
+    let content_policy = sensitive::preflight_resolve(
+        context
+            .sensitive_policy
+            .ok_or_else(|| AppError::internal("resolve policy omitted sensitive policy"))?,
+        &context.allow_sensitive,
+        note.as_deref(),
+        &agent,
+    )?;
+    let path = resolved.path()?.to_path_buf();
     let now = context.effective_now()?;
     let ts = format_timestamp(now);
-    let note = args.note;
     let action = |log: &mut std::fs::File| -> AppResult<(bool, bool, ListItem)> {
         let bytes = store::read_bytes(log, &path)?;
         let folded = store::fold_bytes(&bytes);
@@ -47,6 +56,7 @@ pub fn run(args: ResolveArgs, context: &PolicyContext, pretty: bool) -> AppResul
             ts: ts.clone(),
             agent: agent.clone(),
             note: note.clone(),
+            content_policy: Some(content_policy.clone()),
         });
         if !args.dry_run {
             let event = ResolveRecord {
@@ -55,6 +65,7 @@ pub fn run(args: ResolveArgs, context: &PolicyContext, pretty: bool) -> AppResul
                 ts: ts.clone(),
                 agent: agent.clone(),
                 note: note.clone(),
+                content_policy: Some(content_policy.clone()),
             };
             store::append_json(log, &path, &bytes, &event)?;
         }

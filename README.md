@@ -3,9 +3,10 @@
 > This repository is a public fork of
 > [`treygoff24/papercuts`](https://github.com/treygoff24/papercuts). The fork is
 > implementing its accepted hardened contract in dependency-ordered slices.
-> The profile/storage and privacy-preserving path seams are implemented, while
-> sensitive-content enforcement, adversarial acceptance, and the release gate
-> remain pending. Do not treat the fork as hardened yet; see the
+> The profile/storage, privacy-preserving path, and bounded sensitive-content
+> preflight seams are implemented, while consolidated compatibility work,
+> adversarial acceptance, and the release gate remain pending. Do not treat the
+> fork as hardened yet; see the
 > live status in [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md).
 
 A tiny CLI that gives AI agents a complaint box.

@@ -1,18 +1,20 @@
 use crate::cli::SchemaTarget;
 use crate::error;
+use crate::policy::SensitiveCategory;
+use crate::sensitive;
 use serde_json::{Value, json};
 
 pub fn contract(target: SchemaTarget) -> Value {
     let implementation_status = json!({
         "storage_policy": "implemented by x30.7",
         "path_projection": "implemented by x30.8 for new records, mixed-journal reads, command outputs, and private path diagnostics",
-        "sensitive_preflight": "policy and override inputs are resolved, but content scanning and enforcement are pending x30.9",
+        "sensitive_preflight": "implemented by x30.9 for bounded add/resolve fields, deterministic policy-v1 scanning, exact overrides, redacted refusals, and content_policy audit",
         "security_claim": "none until implementation, adversarial, documentation, and release gates pass"
     });
     let records = json!({
-        "cut": {"kind":"cut","id":"pc_<12 lowercase hex>","ts":"RFC3339 UTC milliseconds","agent":"string","text":"string <= 10000 bytes","tags":["string"],"severity":"minor|major|blocker","cwd":". under omitted; absolute path under legacy-absolute","repo":"null under omitted; absolute path|null under legacy-absolute","path_policy":"omitted|legacy-absolute; missing means contract-1 legacy","path_encoding":"omitted|utf8|lossy-utf8; missing with path_policy means contract-1 legacy"},
-        "resolve": {"kind":"resolve","id":"pc_<12 lowercase hex>","ts":"RFC3339 UTC milliseconds","agent":"string","note":"string|null"},
-        "list_item": {"cut":"all cut fields projected through the active profile without rewriting source bytes","status":"open|resolved","resolution":"{ts,agent,note}|omitted"},
+        "cut": {"kind":"cut","id":"pc_<12 lowercase hex>","ts":"RFC3339 UTC milliseconds","agent":"string <= 128 bytes","text":"string <= 10000 bytes","tags":["up to 16 strings <= 64 bytes each"],"severity":"minor|major|blocker","cwd":". under omitted; absolute path under legacy-absolute","repo":"null under omitted; absolute path|null under legacy-absolute","path_policy":"omitted|legacy-absolute; missing means contract-1 legacy","path_encoding":"omitted|utf8|lossy-utf8; missing with path_policy means contract-1 legacy","content_policy":"{version,mode,decision,categories,fields}; missing means legacy-unscanned"},
+        "resolve": {"kind":"resolve","id":"pc_<12 lowercase hex>","ts":"RFC3339 UTC milliseconds","agent":"string <= 128 bytes","note":"string <= 2000 bytes|null","content_policy":"{version,mode,decision,categories,fields}; missing means legacy-unscanned"},
+        "list_item": {"cut":"all cut fields projected through the active profile without rewriting source bytes","status":"open|resolved","resolution":"{ts,agent,note,content_policy}|omitted"},
         "private_path_fields": {"cwd":".","repo":null,"path_policy":"omitted","path_encoding":"omitted"},
         "committed_path_fields": {"cwd":"absolute path","repo":"absolute path|null","path_policy":"legacy-absolute","path_encoding":"utf8|lossy-utf8"}
     });
@@ -30,7 +32,7 @@ pub fn contract(target: SchemaTarget) -> Value {
         SchemaTarget::All => json!({
             "contract": 2,
             "implementation_status": implementation_status,
-            "success_envelope": {"ok":true,"data":"command-specific object","meta":{"contract":2,"storage_profile":"private|committed","profile_source":"flag-profile|env-profile|default","storage_source":"flag-file|env-file|profile-default","write_policy":"normal|read-only","path_policy":"omitted|legacy-absolute","file":"committed profile only","agent_source":"flag|env|detected|default where relevant","sensitive_policy":"balanced|strict on add/resolve","sensitive_policy_source":"flag|env|profile-default on add/resolve","sensitive_policy_version":"1 on add/resolve; resolution only until x30.9","warnings":["sorted unique string; omitted when empty"]}},
+            "success_envelope": {"ok":true,"data":"command-specific object","meta":{"contract":2,"storage_profile":"private|committed","profile_source":"flag-profile|env-profile|default","storage_source":"flag-file|env-file|profile-default","write_policy":"normal|read-only","path_policy":"omitted|legacy-absolute","file":"committed profile only","agent_source":"flag|env|detected|default where relevant","sensitive_policy":"balanced|strict on add/resolve","sensitive_policy_source":"flag|env|profile-default on add/resolve","sensitive_policy_version":"1 on add/resolve","warnings":["sorted unique string; omitted when empty"]}},
             "commands": {
                 "add": {"alias":["log"],"positional":"TEXT or -; optional when stdin is piped","flags":{"--agent":"NAME","--tag":"TAG; repeatable","--severity":"minor|major|blocker; default minor","--dry-run":"boolean","--allow-sensitive":"CATEGORY; repeatable; requires environment gate"},"output":"{changed,record}","read_only":false,"appends":true,"destructive":false},
                 "list": {"flags":{"--status":"open|resolved|all; default open","--agent":"NAME","--tag":"TAG","--severity":"minor|major|blocker","--since":"full RFC3339|Nd|Nh","--limit":"N; default 50","--format":"json|md; default json"},"output":"{items,count,total,truncated}; md is raw markdown","read_only":true,"appends":false,"destructive":false},
@@ -51,7 +53,17 @@ pub fn contract(target: SchemaTarget) -> Value {
             "records": records,
             "id": {"prefix":"pc_","hex_digits":12,"hash":"SHA-256 first 6 bytes","fields_in_order":["ts","agent","text","severity","sorted tags joined with comma"],"encoding":"u32 little-endian UTF-8 byte length before each field"},
             "discovery": {"target_precedence":["--file","PAPERCUTS_FILE","profile default"],"private_default":"validated GIT_COMMON_DIR/papercuts/log.jsonl; explicit storage required outside Git","committed_default":"validated repository root/.papercuts.jsonl or $HOME/.papercuts/log.jsonl"},
-            "path_contract": {"id_excludes":["cwd","repo","path_policy","path_encoding"],"private_projection":"contract-1 and legacy-absolute records return omitted sentinels without source rewrite","committed_projection":"stored legacy paths remain visible; omitted paths are never reconstructed","private_error_locations":["current_working_directory","repository_marker","git_directory","git_common_directory","private_journal","explicit_journal","stdin","stdout"],"limitations":"agent-authored text, tags, and notes can still contain paths; sensitive preflight is pending x30.9"},
+            "path_contract": {"id_excludes":["cwd","repo","path_policy","path_encoding","content_policy"],"private_projection":"contract-1 and legacy-absolute records return omitted sentinels without source rewrite","committed_projection":"stored legacy paths remain visible; omitted paths are never reconstructed","private_error_locations":["current_working_directory","repository_marker","git_directory","git_common_directory","private_journal","explicit_journal","stdin","stdout"],"limitations":"automatic path omission does not sanitize caller-authored text; policy-v1 preflight detects only its bounded common filesystem_path shapes"},
+            "sensitive_content": {
+                "version": sensitive::POLICY_VERSION,
+                "modes": ["balanced", "strict"],
+                "categories": SensitiveCategory::ALL,
+                "fields": ["text", "tag", "agent", "resolution_note"],
+                "decisions": ["clean", "warn", "override"],
+                "bounds_bytes": {"text":sensitive::MAX_TEXT_BYTES,"resolution_note":sensitive::MAX_NOTE_BYTES,"tag":sensitive::MAX_TAG_BYTES,"agent":sensitive::MAX_AGENT_BYTES,"total":sensitive::MAX_TOTAL_BYTES,"tag_count":sensitive::MAX_TAGS},
+                "override":"PAPERCUTS_ALLOW_SENSITIVE=true plus exact repeated --allow-sensitive for every refusing category; no wildcard or unused preauthorization",
+                "limitations":"bounded common-shape guardrail only; no decoding, Unicode normalization, entropy analysis, runtime patterns, network, subprocess, redaction, or exhaustive safety claim"
+            },
             "errors": errors,
             "exit_codes": exit_codes,
             "storage": {"format":"append-only JSONL","private_permissions":"implicit directory 0700 and file 0600 on Unix","migration":"legacy-only private default requires explicit copy-and-verify migration","locking":"local filesystems only; 50 retries x 100ms","durability":"best effort; no fsync per append"}

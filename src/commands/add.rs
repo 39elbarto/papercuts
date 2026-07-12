@@ -2,6 +2,7 @@ use crate::cli::AddArgs;
 use crate::error::{AppError, AppResult};
 use crate::output::{self, Meta};
 use crate::policy::{PolicyContext, StorageProfile};
+use crate::sensitive;
 use crate::store;
 use crate::{CutRecord, PathEncoding, RecordPathPolicy, compute_id, format_timestamp};
 use serde::{Deserialize, Serialize};
@@ -22,15 +23,6 @@ pub fn run(args: AddArgs, context: &PolicyContext, pretty: bool) -> AppResult<i3
             "Pass non-empty TEXT or pipe it on stdin.",
         ));
     }
-    if text.len() > 10_000 {
-        return Err(AppError::invalid_input(
-            format!(
-                "papercut text is {} bytes; the maximum is 10000",
-                text.len()
-            ),
-            "Shorten the papercut text to at most 10000 UTF-8 bytes.",
-        ));
-    }
     let identity = context
         .agent
         .as_ref()
@@ -44,6 +36,15 @@ pub fn run(args: AddArgs, context: &PolicyContext, pretty: bool) -> AppResult<i3
     let agent = identity.value.clone();
     let mut tags = args.tags;
     tags.sort();
+    let content_policy = sensitive::preflight_add(
+        context
+            .sensitive_policy
+            .ok_or_else(|| AppError::internal("add policy omitted sensitive policy"))?,
+        &context.allow_sensitive,
+        &text,
+        &tags,
+        &agent,
+    )?;
     let now = context.effective_now()?;
     let ts = format_timestamp(now);
     let (cwd, repo, path_policy, path_encoding, lossy_paths) =
@@ -90,6 +91,7 @@ pub fn run(args: AddArgs, context: &PolicyContext, pretty: bool) -> AppResult<i3
         repo,
         path_policy: Some(path_policy),
         path_encoding: Some(path_encoding),
+        content_policy: Some(content_policy),
     };
 
     let mut warnings = Vec::new();
@@ -133,11 +135,42 @@ fn read_text(text: Option<String>) -> AppResult<String> {
     let use_stdin =
         text.as_deref() == Some("-") || (text.is_none() && !std::io::stdin().is_terminal());
     let mut text = if use_stdin {
-        let mut input = Vec::new();
-        std::io::stdin()
-            .lock()
+        let mut input = Vec::with_capacity(sensitive::MAX_TEXT_BYTES + 1);
+        let mut stdin = std::io::stdin().lock();
+        (&mut stdin)
+            .take((sensitive::MAX_TEXT_BYTES + 1) as u64)
             .read_to_end(&mut input)
             .map_err(|error| AppError::from_io(error, std::path::Path::new("stdin")))?;
+        if input.len() == sensitive::MAX_TEXT_BYTES + 1 {
+            let mut probe = [0_u8; 1];
+            let mut has_more = stdin
+                .read(&mut probe)
+                .map_err(|error| AppError::from_io(error, std::path::Path::new("stdin")))?
+                != 0;
+            if has_more && input.ends_with(b"\r") && probe[0] == b'\n' {
+                let mut after_crlf = [0_u8; 1];
+                has_more = stdin
+                    .read(&mut after_crlf)
+                    .map_err(|error| AppError::from_io(error, std::path::Path::new("stdin")))?
+                    != 0;
+                if !has_more {
+                    input.pop();
+                }
+            }
+            if has_more {
+                return Err(AppError::invalid_input(
+                    format!(
+                        "text is more than {} bytes; the maximum is {}",
+                        sensitive::MAX_TEXT_BYTES,
+                        sensitive::MAX_TEXT_BYTES
+                    ),
+                    format!(
+                        "Shorten text to at most {} UTF-8 bytes.",
+                        sensitive::MAX_TEXT_BYTES
+                    ),
+                ));
+            }
+        }
         String::from_utf8(input).map_err(|_| {
             AppError::invalid_input(
                 "papercut text from stdin is not valid UTF-8",

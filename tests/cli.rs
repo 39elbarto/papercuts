@@ -5,6 +5,8 @@ use papercuts::commands::list::ListData;
 use papercuts::commands::resolve::ResolveData;
 use papercuts::error::exit_code_map;
 use papercuts::output::{ErrorEnvelope, SuccessEnvelope};
+use papercuts::policy::SensitiveCategory;
+use papercuts::sensitive::{ContentDecision, SensitiveField};
 use papercuts::{ItemStatus, PathEncoding, RecordPathPolicy, Severity, compute_id};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -160,7 +162,7 @@ fn every_command_success_envelope_deserializes() {
         schema.data["implementation_status"]["sensitive_preflight"]
             .as_str()
             .unwrap()
-            .contains("pending x30.9")
+            .contains("implemented by x30.9")
     );
     assert_eq!(
         schema.data["success_envelope"]["meta"]["sensitive_policy"],
@@ -1745,7 +1747,7 @@ fn sensitive_policy_floor_and_override_gate_are_centralized() {
             .arg(&file)
             .args([
                 "add",
-                "x",
+                "alice@example.invalid",
                 "--dry-run",
                 "--allow-sensitive",
                 "email_address",
@@ -1757,6 +1759,10 @@ fn sensitive_policy_floor_and_override_gate_are_centralized() {
     );
     assert_eq!(gated.meta.sensitive_policy.as_deref(), Some("strict"));
     assert_eq!(gated.meta.sensitive_policy_source.as_deref(), Some("flag"));
+    assert_eq!(
+        gated.data.record.content_policy.unwrap().decision,
+        papercuts::sensitive::ContentDecision::Override
+    );
 }
 
 #[cfg(unix)]
@@ -1853,7 +1859,7 @@ fn contract2_private_and_committed_records_are_exact_and_share_the_same_id() {
         Some(PathEncoding::Omitted)
     );
     let expected_private = format!(
-        "{{\"kind\":\"cut\",\"id\":\"{id}\",\"ts\":\"2026-07-09T18:30:00.123Z\",\"agent\":\"tester\",\"text\":\"same path policy\",\"tags\":[\"a\",\"z\"],\"severity\":\"major\",\"cwd\":\".\",\"repo\":null,\"path_policy\":\"omitted\",\"path_encoding\":\"omitted\"}}\n"
+        "{{\"kind\":\"cut\",\"id\":\"{id}\",\"ts\":\"2026-07-09T18:30:00.123Z\",\"agent\":\"tester\",\"text\":\"same path policy\",\"tags\":[\"a\",\"z\"],\"severity\":\"major\",\"cwd\":\".\",\"repo\":null,\"path_policy\":\"omitted\",\"path_encoding\":\"omitted\",\"content_policy\":{{\"version\":1,\"mode\":\"balanced\",\"decision\":\"clean\",\"categories\":[],\"fields\":[]}}}}\n"
     );
     assert_eq!(
         std::fs::read_to_string(&private_file).unwrap(),
@@ -1894,7 +1900,7 @@ fn contract2_private_and_committed_records_are_exact_and_share_the_same_id() {
     let cwd = temp.path().to_string_lossy();
     let cwd_json = serde_json::to_string(cwd.as_ref()).unwrap();
     let expected_committed = format!(
-        "{{\"kind\":\"cut\",\"id\":\"{id}\",\"ts\":\"2026-07-09T18:30:00.123Z\",\"agent\":\"tester\",\"text\":\"same path policy\",\"tags\":[\"a\",\"z\"],\"severity\":\"major\",\"cwd\":{cwd_json},\"repo\":null,\"path_policy\":\"legacy-absolute\",\"path_encoding\":\"utf8\"}}\n"
+        "{{\"kind\":\"cut\",\"id\":\"{id}\",\"ts\":\"2026-07-09T18:30:00.123Z\",\"agent\":\"tester\",\"text\":\"same path policy\",\"tags\":[\"a\",\"z\"],\"severity\":\"major\",\"cwd\":{cwd_json},\"repo\":null,\"path_policy\":\"legacy-absolute\",\"path_encoding\":\"utf8\",\"content_policy\":{{\"version\":1,\"mode\":\"strict\",\"decision\":\"clean\",\"categories\":[],\"fields\":[]}}}}\n"
     );
     assert_eq!(
         std::fs::read_to_string(&committed_file).unwrap(),
@@ -2508,4 +2514,274 @@ fn private_explicit_parent_symlink_is_allowed_without_path_echo() {
     assert!(!String::from_utf8_lossy(&output.stdout).contains("customer-secret"));
     success::<AddData>(&output);
     assert!(real_parent.join("cuts.jsonl").is_file());
+}
+
+#[test]
+fn sensitive_preflight_warns_refuses_overrides_and_precedes_clock_and_duplicate_lookup() {
+    let temp = TempDir::new().unwrap();
+    let private_file = temp.path().join("private/warn.jsonl");
+    let warning: SuccessEnvelope<AddData> = success(
+        &command()
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&private_file)
+            .args(["add", "contact alice@example.invalid", "--agent", "tester"])
+            .output()
+            .unwrap(),
+    );
+    let warning_policy = warning.data.record.content_policy.unwrap();
+    assert_eq!(warning_policy.decision, ContentDecision::Warn);
+    assert_eq!(warning_policy.categories, [SensitiveCategory::EmailAddress]);
+    assert_eq!(warning_policy.fields, [SensitiveField::Text]);
+    assert!(
+        std::fs::read_to_string(&private_file)
+            .unwrap()
+            .contains("alice@example.invalid")
+    );
+
+    let sentinel = "SYNTHETIC_NO_ECHO_BEARER_7Q9";
+    let suspect = format!("Authorization: Bearer {sentinel}");
+    let committed_file = temp.path().join("committed.jsonl");
+    let accepted: SuccessEnvelope<AddData> = success(
+        &command()
+            .env("PAPERCUTS_ALLOW_SENSITIVE", "true")
+            .arg("--file")
+            .arg(&committed_file)
+            .args([
+                "add",
+                &suspect,
+                "--agent",
+                "tester",
+                "--allow-sensitive",
+                "authorization_header",
+            ])
+            .output()
+            .unwrap(),
+    );
+    let accepted_policy = accepted.data.record.content_policy.unwrap();
+    assert_eq!(accepted_policy.decision, ContentDecision::Override);
+    assert_eq!(
+        accepted_policy.categories,
+        [SensitiveCategory::AuthorizationHeader]
+    );
+    let before = std::fs::read(&committed_file).unwrap();
+
+    let refused = command()
+        .env("PAPERCUTS_NOW", "invalid-clock-must-not-win")
+        .arg("--file")
+        .arg(&committed_file)
+        .args(["add", &suspect, "--agent", "tester"])
+        .output()
+        .unwrap();
+    let refusal = error(&refused, 65, "sensitive_input");
+    assert_eq!(refusal.meta.file, None);
+    assert_eq!(
+        refusal.error.details["categories"],
+        json!(["authorization_header"])
+    );
+    assert_eq!(refusal.error.details["fields"], json!(["text"]));
+    assert!(!String::from_utf8_lossy(&refused.stderr).contains(sentinel));
+    assert_eq!(std::fs::read(&committed_file).unwrap(), before);
+
+    let dry_target = temp.path().join("missing-parent/refused.jsonl");
+    let dry_refusal = command()
+        .arg("--file")
+        .arg(&dry_target)
+        .args(["add", &suspect, "--agent", "tester", "--dry-run"])
+        .output()
+        .unwrap();
+    error(&dry_refusal, 65, "sensitive_input");
+    assert!(!String::from_utf8_lossy(&dry_refusal.stderr).contains(sentinel));
+    assert!(!dry_target.exists());
+    assert!(!dry_target.parent().unwrap().exists());
+}
+
+#[test]
+fn sensitive_preflight_covers_tags_agents_and_resolution_notes() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("private.jsonl");
+
+    let tag_warning: SuccessEnvelope<AddData> = success(
+        &command()
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&file)
+            .args([
+                "add",
+                "tag field",
+                "--agent",
+                "tester",
+                "--tag",
+                "alice@example.invalid",
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        tag_warning.data.record.content_policy.unwrap().fields,
+        [SensitiveField::Tag]
+    );
+
+    let agent_warning: SuccessEnvelope<AddData> = success(
+        &command()
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&file)
+            .args(["add", "agent field", "--agent", "agent@example.invalid"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        agent_warning.data.record.content_policy.unwrap().fields,
+        [SensitiveField::Agent]
+    );
+
+    let clean = add(&file, "resolution field");
+    let resolved: SuccessEnvelope<ResolveData> = success(
+        &command()
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&file)
+            .args([
+                "resolve",
+                &clean.data.record.id,
+                "--agent",
+                "fixer",
+                "--note",
+                "follow up with owner@example.invalid",
+            ])
+            .output()
+            .unwrap(),
+    );
+    let resolution_policy = resolved
+        .data
+        .record
+        .resolution
+        .unwrap()
+        .content_policy
+        .unwrap();
+    assert_eq!(resolution_policy.decision, ContentDecision::Warn);
+    assert_eq!(resolution_policy.fields, [SensitiveField::ResolutionNote]);
+
+    let sentinel = "ghp_SyntheticTagSentinel99";
+    let refused = command()
+        .arg("--file")
+        .arg(temp.path().join("refused.jsonl"))
+        .args(["add", "tag refusal", "--agent", "tester", "--tag", sentinel])
+        .output()
+        .unwrap();
+    let envelope = error(&refused, 65, "sensitive_input");
+    assert_eq!(envelope.error.details["fields"], json!(["tag"]));
+    assert!(!String::from_utf8_lossy(&refused.stderr).contains(sentinel));
+}
+
+#[test]
+fn sensitive_preflight_enforces_bounded_stdin_fields_and_notes() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("bounds.jsonl");
+
+    let exact_stdin: SuccessEnvelope<AddData> = success(
+        &command()
+            .arg("--file")
+            .arg(&file)
+            .args(["add", "-", "--agent", "tester", "--dry-run"])
+            .write_stdin(format!("{}\n", "x".repeat(10_000)))
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(exact_stdin.data.record.text.len(), 10_000);
+    assert!(!file.exists());
+
+    let exact_crlf: SuccessEnvelope<AddData> = success(
+        &command()
+            .arg("--file")
+            .arg(&file)
+            .args(["add", "-", "--agent", "tester", "--dry-run"])
+            .write_stdin(format!("{}\r\n", "x".repeat(10_000)))
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(exact_crlf.data.record.text.len(), 10_000);
+    assert!(!file.exists());
+
+    for input in ["x".repeat(10_001), "x".repeat(10_002)] {
+        let oversized = command()
+            .arg("--file")
+            .arg(&file)
+            .args(["add", "-", "--agent", "tester", "--dry-run"])
+            .write_stdin(input)
+            .output()
+            .unwrap();
+        error(&oversized, 65, "invalid_input");
+        assert!(!file.exists());
+    }
+
+    let long_agent = "a".repeat(129);
+    error(
+        &run_file(&file, &["add", "x", "--agent", &long_agent]),
+        65,
+        "invalid_input",
+    );
+    let long_tag = "t".repeat(65);
+    error(
+        &run_file(
+            &file,
+            &["add", "x", "--agent", "tester", "--tag", &long_tag],
+        ),
+        65,
+        "invalid_input",
+    );
+
+    let mut too_many = command();
+    too_many
+        .arg("--file")
+        .arg(&file)
+        .args(["add", "x", "--agent", "tester"]);
+    for index in 0..17 {
+        too_many.arg("--tag").arg(format!("tag-{index}"));
+    }
+    let too_many = too_many.output().unwrap();
+    error(&too_many, 65, "invalid_input");
+    assert!(!file.exists());
+
+    let added = add(&file, "note bounds");
+    let exact_note = "n".repeat(2_000);
+    let preview: SuccessEnvelope<ResolveData> = success(
+        &command()
+            .arg("--file")
+            .arg(&file)
+            .args([
+                "resolve",
+                &added.data.record.id,
+                "--agent",
+                "tester",
+                "--note",
+                &exact_note,
+                "--dry-run",
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert!(!preview.data.changed);
+    let before = std::fs::read(&file).unwrap();
+    let long_note = "n".repeat(2_001);
+    let rejected = command()
+        .arg("--file")
+        .arg(&file)
+        .args([
+            "resolve",
+            &added.data.record.id,
+            "--agent",
+            "tester",
+            "--note",
+            &long_note,
+        ])
+        .output()
+        .unwrap();
+    error(&rejected, 65, "invalid_input");
+    assert_eq!(std::fs::read(&file).unwrap(), before);
 }

@@ -46,6 +46,11 @@ pub const ERROR_CONTRACT: &[ErrorContract] = &[
         description: "invalid input data",
     },
     ErrorContract {
+        code: "sensitive_input",
+        exit_code: 65,
+        description: "input refused by the sensitive-data guardrail",
+    },
+    ErrorContract {
         code: "not_found",
         exit_code: 66,
         description: "missing explicit file or unknown ID",
@@ -145,6 +150,46 @@ impl AppError {
 
     pub fn invalid_input(message: impl Into<String>, fix: impl Into<String>) -> Self {
         Self::new("invalid_input", message, false, fix)
+    }
+
+    pub fn unused_sensitive_override(categories: Vec<crate::policy::SensitiveCategory>) -> Self {
+        let mut error = Self::invalid_input(
+            "one or more sensitive-data overrides were not required",
+            "Remove unused --allow-sensitive categories and retry.",
+        );
+        error.details = json!({
+            "categories": categories
+                .into_iter()
+                .map(crate::policy::SensitiveCategory::as_str)
+                .collect::<Vec<_>>()
+        });
+        error
+    }
+
+    pub fn sensitive_input(
+        policy: crate::policy::SensitivePolicy,
+        categories: Vec<crate::policy::SensitiveCategory>,
+        fields: Vec<crate::sensitive::SensitiveField>,
+    ) -> Self {
+        let mut error = Self::new(
+            "sensitive_input",
+            "input matched the sensitive-data guardrail",
+            false,
+            "Replace sensitive values with a non-sensitive description, then retry. Review the original value outside Papercuts.",
+        );
+        error.details = json!({
+            "policy_version": crate::sensitive::POLICY_VERSION,
+            "policy": policy.as_str(),
+            "categories": categories
+                .into_iter()
+                .map(crate::policy::SensitiveCategory::as_str)
+                .collect::<Vec<_>>(),
+            "fields": fields
+                .into_iter()
+                .map(crate::sensitive::SensitiveField::as_str)
+                .collect::<Vec<_>>(),
+        });
+        error
     }
 
     pub fn not_found(message: impl Into<String>, fix: impl Into<String>) -> Self {
@@ -285,7 +330,11 @@ impl AppError {
     }
 
     pub fn with_policy(mut self, context: &crate::policy::PolicyContext) -> Self {
-        let file = if context.profile == crate::policy::StorageProfile::Committed {
+        let sensitive_diagnostic = self.code == "sensitive_input"
+            || (self.code == "invalid_input" && self.details.get("categories").is_some());
+        let file = if context.profile == crate::policy::StorageProfile::Committed
+            && !sensitive_diagnostic
+        {
             context
                 .storage
                 .path

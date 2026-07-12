@@ -388,6 +388,10 @@ modified by the release gate.
 Pilot design: `docs/PILOT_PLAN.md` allowlists only `papercuts` and
 `acfs-workbench` for 14 days. Activation remains an `x30.15` execution step.
 
+Activation status: `papercuts` has a fresh zero-line private journal and exact
+gated-binary instructions. The combined pilot clock remains stopped pending a
+clean `acfs-workbench` activation.
+
 - install the forked binary under an unambiguous version;
 - pilot in `papercuts`, `acfs-workbench`, and at most two other active projects;
 - collect false positives, missed cases, and operational friction;

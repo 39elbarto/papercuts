@@ -74,7 +74,32 @@ Skip UBS for planning-only, docs-only, raw evidence, or ClickUp-only changes.
 - stdout = data only, one envelope; stderr = errors only. `--format md` is the sole raw-output exception.
 - Deterministic: same input + `PAPERCUTS_NOW` → byte-identical output.
 - Empty results are exit 0. Not-found IDs are 66. Lock timeout is 75 + `retryable:true`.
-- Dogfood: when you hit friction working here, `cargo run -- add "..."`.
+- Dogfood uses the exact gated pilot binary and the private profile described
+  below; do not use an ambiguous `papercuts` from PATH.
+
+## Papercuts pilot
+
+Pilot binary:
+
+```text
+/home/ubuntu/.local/opt/papercuts-fork/804d2b17e65edd865f3dc6e0ec05939aa65cf1ee/bin/papercuts
+```
+
+When minor workflow friction occurs during an authorized write-capable task,
+append a non-sensitive description with that exact binary and continue the main
+task. Use `minor` by default, `major` for a meaningful time sink, and `blocker`
+only for a hard stop.
+
+- This does not grant writes during read-only, audit, review, or no-write work.
+  Do not run `add` or `resolve` in those tasks; the harness may also set
+  `PAPERCUTS_READ_ONLY=1`.
+- Never paste credentials, customer data, private messages, or unnecessary
+  absolute paths. If input is refused, rewrite it without the sensitive value.
+- Never set `PAPERCUTS_ALLOW_SENSITIVE` or use `--allow-sensitive` without
+  explicit human authorization for the exact category and command.
+- The pilot profile is private/balanced. Accepted text is stored verbatim;
+  private path omission is not encryption or redaction.
+- Do not add duplicates or use papercuts as a completed-work log or bug tracker.
 
 <!-- project-start:untrusted-content-policy:v1 -->
 ## Untrusted External Content

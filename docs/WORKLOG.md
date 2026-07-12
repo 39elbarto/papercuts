@@ -964,3 +964,15 @@ decision.
   changes including an already modified `AGENTS.md`.
 - No target repository file or journal changed and the 14-day clock did not
   start. Evidence: `docs/evidence/x30.15-activation-preflight-2026-07-12.md`.
+
+## 2026-07-12 — Papercuts pilot repository activated
+
+- With explicit operator approval, removed tracked `.papercuts.jsonl` from the
+  current tree without rewriting Git history.
+- Did not copy its 20 development dogfood cuts into pilot storage.
+- Initialized a fresh empty private journal under the Git common directory with
+  directory/file modes `700/600`; doctor is healthy with zero lines.
+- Added exact gated-binary, read-only, no-override, and non-sensitive logging
+  rules to this repository's `AGENTS.md`.
+- The combined 14-day clock remains stopped until `acfs-workbench` is clean and
+  separately activated.

@@ -292,3 +292,71 @@ treating language generics as shell redirection placeholders.
 Complete the sensitive-data guardrail decision. The consolidated ADR can then
 integrate storage, paths, input policy, compatibility, and release strategy
 before implementation begins.
+
+## 2026-07-12 — Deterministic sensitive-data guardrail decision
+
+### Outcome
+
+- Completed the planning contract for
+  `br-hardened-papercuts-fork-x30.4`; Rust product code remains unchanged.
+- Added `docs/SENSITIVE_DATA_GUARDRAIL_ADR.md` with exact modes, category
+  catalog, size bounds, override controls, dry-run behavior, redacted error
+  shape, record audit, performance budget, limitations, and synthetic corpus.
+- Selected `balanced` as the private-profile floor and `strict` as the
+  committed-profile floor; callers may strengthen policy but not weaken it
+  below the active profile.
+- Selected a two-key, category-specific override with no wildcard: a controlling
+  environment gate and exact repeated flags must both be present.
+- Required scanning of every persisted caller-controlled string before journal
+  creation, open, lock, read, duplicate lookup, or event construction.
+- Rejected generic entropy scoring, recursive decoding, mandatory external
+  scanners, network catalogs, value echo, and one-flag force bypasses.
+- Required new cut and resolve events to carry category-only `content_policy`
+  audit while retaining old events as append-only `legacy-unscanned` history.
+
+### Evidence
+
+- Rechecked the current add, resolve, CLI, record, error, schema, and black-box
+  test surfaces. Current v0.1 scans nothing, reads stdin without a pre-read
+  bound, limits only cut text, and persists agent, tag, and resolution-note
+  strings without equivalent bounds.
+- Sourced initial vendor-prefix categories from official GitHub, AWS, Slack, and
+  Stripe documentation, without relying on undocumented fixed token lengths.
+- Chose the Rust regex crate only as an implementation option with fixed
+  patterns, compiled-size and input caps, and documented worst-case bounds; the
+  ADR does not require runtime downloads or caller-supplied regexes.
+- Performed security-honesty, compatibility/side-effect-order, and downstream-
+  executability review passes; material findings were incorporated into the
+  final ADR.
+
+### Verification
+
+- Release build: pass.
+- Tests: 30 passed.
+- Clippy with warnings denied: pass.
+- Formatting and `git diff --check`: pass.
+- `papercuts doctor`: healthy, twelve journal lines.
+- Gitleaks: no leaks found across 15 commits and the working tree.
+- Product files under `src/`, `tests/`, `Cargo.toml`, and `Cargo.lock` still
+  match `upstream/main`.
+- Beads graph: 22 nodes, 27 edges, no cycles; sensitive-policy decisions copied
+  into every affected implementation, schema, test, docs, pilot, digest, and
+  release bead.
+- UBS: skipped because this slice changed only planning/docs, Beads, and the
+  append-only dogfood journal; no code, script, hook, or executable
+  configuration changed.
+
+### Papercuts observed
+
+- Source inspection assumed a nonexistent `src/model.rs`; record types actually
+  live in `src/lib.rs`.
+- A direct `jq` query assumed a top-level issue array, while this `br list`
+  version returns an object containing `issues`.
+- Overlapping `sed` ranges made headings appear duplicated and caused one
+  failed cleanup patch; exact numbered context corrected the review.
+
+### Next step
+
+Publish the consolidated hardened-contract ADR in
+`br-hardened-papercuts-fork-x30.5`, reconciling storage, path, content policy,
+schema version, compatibility, and release naming before implementation begins.

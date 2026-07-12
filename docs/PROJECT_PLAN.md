@@ -184,14 +184,36 @@ summary:
 This is planned behavior only until the consolidated ADR and implementation
 gates pass.
 
+### 6.3 Accepted sensitive-data guardrail direction
+
+The content policy decision is recorded in
+[`SENSITIVE_DATA_GUARDRAIL_ADR.md`](SENSITIVE_DATA_GUARDRAIL_ADR.md). In
+summary:
+
+- one bounded, versioned, offline scanner covers cut text, tags, persisted agent
+  names, and resolution notes before append-side I/O;
+- `balanced` is the private-profile floor: high-confidence credential shapes
+  refuse while medium-risk identifiers, paths, and config-like context append
+  with category-only audit metadata;
+- `strict` is the committed-profile floor and refuses both levels;
+- policy can be strengthened but not weakened below the profile floor;
+- an override requires an operator-controlled environment gate plus exact
+  repeated category flags, has no wildcard, and is persisted as category-only
+  audit metadata;
+- refused values are never echoed, hashed, logged, or written by Papercuts;
+- policy version 1 deliberately has no entropy detector, recursive decoding,
+  Unicode normalization, network lookup, or exhaustive-safety claim;
+- new cut and resolve events carry `content_policy`; old events remain
+  `legacy-unscanned` without rewrite.
+
+This is planned behavior only. The current upstream-compatible binary does not
+yet enforce the scanner, size bounds, policy modes, or override contract.
+
 ## 7. Decisions still open
 
 These must be resolved in planning before implementation:
 
-1. Should likely-secret detection warn, refuse, or support both policies?
-2. Which checks can be deterministic and explainable without creating a false
-   promise of complete secret detection?
-3. What is the smallest useful cross-project review interface?
+1. What is the smallest useful cross-project review interface?
 
 Until these decisions are recorded, do not start broad implementation.
 
@@ -217,6 +239,8 @@ Required posture:
 - every mutation must remain explicit in `schema`;
 - no network call may be required to log or validate a cut;
 - raw detected sensitive values must never be echoed in error details.
+- balanced warnings and deliberate overrides persist the original accepted
+  input; their category-only metadata is not redaction.
 
 ## 9. Compatibility and upstream strategy
 

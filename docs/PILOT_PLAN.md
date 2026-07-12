@@ -10,9 +10,9 @@ for 14 calendar days in exactly two repositories:
 | `papercuts` | `/data/projects/papercuts` | repository operator |
 | `acfs-workbench` | `/data/projects/acfs-workbench` | repository operator |
 
-No other repository is implicitly included. Adding one requires a plan update
-before execution. This planning document does not install a binary or modify an
-allowlisted repository.
+No other repository is included. Adding one requires a plan update before
+execution. Activation and the current review state are recorded in
+`docs/PILOT_STATUS.md`.
 
 ## Installation identity
 
@@ -58,12 +58,30 @@ legacy source.
 - Normal authorized work may append a non-sensitive papercut and continue.
 - Read-only, audit, review, or no-write tasks do not invoke add or resolve.
 - The harness should set `PAPERCUTS_READ_ONLY=1` for those tasks.
-- Agents never set `PAPERCUTS_ALLOW_SENSITIVE` or use `--allow-sensitive`.
+- Agents do not set `PAPERCUTS_ALLOW_SENSITIVE` or use `--allow-sensitive`
+  without exact human authorization for one category and one command.
 - A refusal is rewritten as a non-sensitive description or left unlogged.
+
+The one authorized synthetic `email_address` override dry run has been
+completed. That authorization is exhausted.
 
 ## Observation and review
 
-Operator review occurs on pilot days 1, 3, 7, and 14:
+Operator review occurs on pilot days 1, 3, 7, and 14. Each assigned ClickUp
+task is due at 16:15 in `Asia/Ho_Chi_Minh`, after the 16:07 review gate:
+
+| Gate | Due | ClickUp task |
+|---|---|---|
+| day 1 | 2026-07-13 16:15 +07 | [`86ey8vpj4`](https://app.clickup.com/t/86ey8vpj4) |
+| day 3 | 2026-07-15 16:15 +07 | [`86ey8vppn`](https://app.clickup.com/t/86ey8vppn) |
+| day 7 | 2026-07-19 16:15 +07 | [`86ey8vppv`](https://app.clickup.com/t/86ey8vppv) |
+| day 14 | 2026-07-26 16:15 +07 | [`86ey8vpqa`](https://app.clickup.com/t/86ey8vpqa) |
+
+When a task becomes due, open the Codex chat named **PaperCuts Project** and
+send the continuation phrase stored in that task. The task must remain open
+until the repository evidence and worklog update are published.
+
+Run the review with the exact pilot binary:
 
 ```bash
 "$PC" --profile private doctor
@@ -72,6 +90,9 @@ Operator review occurs on pilot days 1, 3, 7, and 14:
 
 Review warnings for balanced matches, legacy paths, and legacy-unscanned
 records. Do not copy matched values or raw journal lines into evidence.
+
+The ClickUp tasks are reminders and entry points. The repository files remain
+the source of truth for pilot state and evidence.
 
 ## Metrics
 

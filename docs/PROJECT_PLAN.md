@@ -385,15 +385,18 @@ Exit: a single-project pilot can log without publishing unnecessary context.
 Status: the bounded `x30.15` pilot is active in both approved repositories.
 
 Pilot design: `docs/PILOT_PLAN.md` allowlists only `papercuts` and
-`acfs-workbench` for 14 days. Activation remains an `x30.15` execution step.
+`acfs-workbench` for 14 days. `docs/PILOT_STATUS.md` is the concise current-state
+handoff for the active pilot.
 
 Activation status: both approved repositories have committed exact-gated-binary
 instructions and healthy private storage. The combined 14-day clock started at
 2026-07-12T16:07:01+07:00 and cannot finish before
 2026-07-26T16:07:01+07:00. Reviews are due on pilot days 1, 3, 7, and 14.
+Four assigned ClickUp subtasks hold the corresponding 16:15 reminders and tell
+the operator to reopen the Codex chat named **PaperCuts Project**.
 
 - install the forked binary under an unambiguous version;
-- pilot in `papercuts`, `acfs-workbench`, and at most two other active projects;
+- keep the pilot limited to `papercuts` and `acfs-workbench`;
 - collect false positives, missed cases, and operational friction;
 - define review cadence and promotion rules;
 - keep rollout reversible.

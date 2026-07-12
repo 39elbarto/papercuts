@@ -1018,3 +1018,54 @@ Keep `x30.15` in progress. Perform the day-1 review after the elapsed-time gate;
 do not replace it with repeated immediate commands or unlock wider adoption.
 The approval-gated synthetic override scenario is complete; no authorization
 extends to another category, command, or non-dry-run operation.
+
+## 2026-07-12: Pilot status handoff and ClickUp reminders
+
+- Replaced the stale planning text in the existing Machine Projects parent
+  `papercuts` with the current `x30.15` pilot state, remaining boundaries, and
+  links to the repository documents.
+- Updated the parent custom fields from the planning-era `build / Soon` to
+  `monitor / Now` and refreshed `Last Meaningful Work At`. Bridge readback
+  confirmed the new values, and the temporary host stopped after each command.
+- Set `Last Handoff Path` to `docs/PILOT_STATUS.md`. `Track ID` remains empty
+  because the chat name is known but no stable session identifier was verified.
+- Created four assigned ClickUp subtasks for pilot days 1, 3, 7, and 14. Their
+  due times are 16:15 in `Asia/Ho_Chi_Minh`, eight minutes after each review
+  gate.
+- Every task tells the operator to open the Codex chat named
+  **PaperCuts Project**, send the checkpoint-specific continuation phrase, and
+  close the task only after repository evidence is published.
+- Added `docs/PILOT_STATUS.md` as the short current-state handoff and updated
+  the pilot plan, project plan, continuation prompt, and activation evidence to
+  use the same schedule and ClickUp task IDs.
+- Manually reviewed the new and changed prose for formulaic AI phrasing,
+  unnecessary long dashes, mixed-language filler, and stale planning claims.
+  Technical terms were kept where they name an actual CLI or contract field.
+
+### ClickUp readback
+
+- parent: [`86ey8k1ay`](https://app.clickup.com/t/86ey8k1ay), status
+  `in progress`;
+- day 1: [`86ey8vpj4`](https://app.clickup.com/t/86ey8vpj4), due
+  `2026-07-13 16:15 +07`;
+- day 3: [`86ey8vppn`](https://app.clickup.com/t/86ey8vppn), due
+  `2026-07-15 16:15 +07`;
+- day 7: [`86ey8vppv`](https://app.clickup.com/t/86ey8vppv), due
+  `2026-07-19 16:15 +07`;
+- day 14: [`86ey8vpqa`](https://app.clickup.com/t/86ey8vpqa), due
+  `2026-07-26 16:15 +07`.
+
+All four tasks are subtasks of `86ey8k1ay`, assigned to Artem, stored in
+`Machine Projects`, and contain the exact chat name. ClickUp due notifications
+still depend on the user's notification settings.
+
+### Papercut observed
+
+The parent readback reported zero subtasks even though all four child readbacks
+returned the correct parent ID. The mismatch was recorded as
+`pc_05ed812155c2`; hierarchy verification used the child records.
+
+### Next step
+
+Wait for the day-1 gate. When its ClickUp notification arrives, reopen
+**PaperCuts Project** and continue from `docs/PILOT_STATUS.md`.

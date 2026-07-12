@@ -854,3 +854,58 @@ independently; product behavior and append-only journal bytes are unaffected.
 Proceed automatically to `x30.12` for verified safe single-project agent
 instructions and the operator review runbook, then run the independent release
 gate in `x30.13`.
+
+## 2026-07-12 — Safe single-project instructions and operator runbook
+
+### Outcome
+
+- Completed `br-hardened-papercuts-fork-x30.12` with a canonical copy-ready
+  `AGENTS.md` block and a standalone operator runbook.
+- The agent policy preserves task authority: read-only/audit/no-write work
+  cannot invoke add or resolve, and autonomous agents cannot enable the
+  sensitive-category gate or flag.
+- The runbook covers isolated exact-SHA installation, contract preflight,
+  deterministic precedence, private/committed/non-Git targets, review and
+  resolve cadence, explicit copy-and-verify migration, known scanner/path
+  limitations, observable failure modes, and selection-only rollback.
+- Reworked README's inherited upstream wording: the hardened default is now
+  correctly private, committed is an explicit exposure lane, and installation
+  no longer points at the upstream registry package.
+- Added `scripts/verify-single-project-runbook.sh`, which executes the
+  documented lifecycle in disposable ordinary Git, linked-worktree, migration,
+  committed, and non-Git fixtures and emits only a sanitized pass/fail line.
+- Remote exact-SHA installation exposed stale schema status and an incorrect
+  draft preflight assumption. Updated `adversarial_acceptance` to
+  `implemented by x30.11`, used the real `path_projection` key and value form,
+  and pinned the status in the CLI contract test.
+
+### Verification
+
+- Disposable runbook lifecycle: pass.
+- Full suite: 17 unit, 53 CLI, and 10 security acceptance tests pass.
+- Release build, Clippy with warnings denied, formatting, shell syntax,
+  `git diff --check`, and full working-tree Gitleaks: pass.
+- Dogfood journal doctor: healthy, 20 lines, no findings; retained legacy and
+  unscanned warnings remain accurate.
+- Scoped UBS was non-zero only for existing test panic/assert heuristics,
+  warning-label secret-comparison false positives, bounded JSON indexing, and
+  fixture allocations. Its independent build, lint, unsafe, shell, secret, and
+  resource checks were clean.
+
+### Papercuts observed
+
+- The destructive-command guard's temporary-cleanup behavior is already
+  recorded as `pc_956892a253f7`; no duplicate was added.
+- The crates.io availability failure is covered by the existing registry
+  availability papercut `pc_d8c79d4b2a1d`; the cached offline install provided
+  the bounded verification path without duplicating the entry.
+
+### Rollback
+
+Revert the focused documentation/status commit. Do not rewrite journals;
+rollback remains a profile/binary selection decision.
+
+### Next step
+
+Proceed automatically to `x30.13` and run the hardened single-project release
+gate against the committed SHA before planning any pilot rollout.

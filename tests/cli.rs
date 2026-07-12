@@ -167,6 +167,10 @@ fn every_command_success_envelope_deserializes() {
             .contains("implemented by x30.9")
     );
     assert_eq!(
+        schema.data["implementation_status"]["adversarial_acceptance"],
+        "implemented by x30.11"
+    );
+    assert_eq!(
         schema.data["metadata"]["private_add_resolve"]["contract"],
         2
     );

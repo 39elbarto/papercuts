@@ -369,7 +369,8 @@ Status: in progress; `x30.7` profile/storage policy, `x30.8` path projection,
 `x30.9` sensitive preflight, `x30.10` consolidated contract-2 schema, errors,
 metadata, and compatibility, and `x30.11` independent adversarial acceptance
 are implemented. `x30.12` safe single-project instructions and operator review
-runbook are the next dependency-ordered slice.
+runbook are also implemented. `x30.13` is the next dependency-ordered release
+gate.
 
 - implement shared profile/target/write/content policy resolution (`x30.7`);
 - implement strict Git resolution and path minimization (`x30.8`);

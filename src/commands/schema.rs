@@ -33,7 +33,7 @@ pub fn contract(target: SchemaTarget) -> Value {
                 "path_projection": "implemented by x30.8",
                 "sensitive_preflight": "implemented by x30.9",
                 "contract_surface": "implemented by x30.10",
-                "adversarial_acceptance": "pending x30.11",
+                "adversarial_acceptance": "implemented by x30.11",
                 "security_claim": "bounded guardrails implemented; hardened release claim withheld until remaining acceptance and release gates pass"
             },
             "security_claim": {

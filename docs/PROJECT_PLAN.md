@@ -385,6 +385,9 @@ Exit: a single-project pilot can log without publishing unnecessary context.
 Status: ready for bounded planning in `x30.14`; no target repository has been
 modified by the release gate.
 
+Pilot design: `docs/PILOT_PLAN.md` allowlists only `papercuts` and
+`acfs-workbench` for 14 days. Activation remains an `x30.15` execution step.
+
 - install the forked binary under an unambiguous version;
 - pilot in `papercuts`, `acfs-workbench`, and at most two other active projects;
 - collect false positives, missed cases, and operational friction;

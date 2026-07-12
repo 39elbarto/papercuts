@@ -942,3 +942,14 @@ is in `docs/evidence/x30.13-single-project-release-gate-2026-07-12.md`.
 Proceed to `x30.14` to design the bounded pilot. Planning must name at most four
 allowlisted repositories and must not modify them without a separate execution
 decision.
+
+## 2026-07-12 — Reversible allowlisted pilot design
+
+- Designed a 14-day pilot for exactly `/data/projects/papercuts` and
+  `/data/projects/acfs-workbench`; no target repository was modified.
+- Pinned the gated SHA and isolated install root, private/balanced policy,
+  exact-path invocation, read-only/no-override rules, activation checks, review
+  days, sanitized metrics, stop conditions, 30-day receipt retention, and
+  selection-only rollback in `docs/PILOT_PLAN.md`.
+- Execution remains isolated in `x30.15` and must stop rather than infer around
+  migration, permission, disclosure, contract, or binary-identity failures.

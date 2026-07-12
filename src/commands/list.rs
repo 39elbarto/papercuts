@@ -1,12 +1,12 @@
 use crate::cli::{ListArgs, OutputFormat, StatusFilter};
 use crate::error::{AppError, AppResult};
 use crate::output::{self, Meta};
+use crate::policy::{PolicyContext, StorageProfile};
 use crate::store;
-use crate::{ItemStatus, ListItem, Severity, parse_since};
+use crate::{ItemStatus, ListItem, Severity, parse_absolute_since, parse_since, since_is_relative};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListData {
@@ -16,31 +16,45 @@ pub struct ListData {
     pub truncated: bool,
 }
 
-pub fn run(args: ListArgs, file: Option<PathBuf>, pretty: bool, now: Timestamp) -> AppResult<i32> {
-    let resolved = store::discover(file)?;
-    let mut warnings = Vec::new();
-    let folded = match store::with_shared(&resolved.path, |log| {
-        let bytes = store::read_bytes(log, &resolved.path)?;
-        Ok(store::fold_bytes(&bytes))
-    }) {
-        Ok(folded) => folded,
-        Err(error) if error.code == "not_found" && error.exit_code == 66 => {
-            if resolved.explicit {
-                return Err(AppError::not_found(
-                    format!("papercuts file not found: {}", resolved.path.display()),
-                    "Pass an existing --file PATH or run `papercuts add` to create a discovered default file.",
-                ));
+pub fn run(args: ListArgs, context: PolicyContext, pretty: bool) -> AppResult<i32> {
+    let resolved = &context.storage;
+    let mut warnings = resolved.warnings.clone();
+    let folded = if let Some(path) = resolved.path.as_deref() {
+        match store::with_shared_resolved(resolved, |log| {
+            let bytes = store::read_bytes(log, path)?;
+            Ok(store::fold_bytes(&bytes))
+        }) {
+            Ok(folded) => folded,
+            Err(error) if error.code == "not_found" && error.exit_code == 66 => {
+                if resolved.explicit {
+                    return Err(AppError::not_found(
+                        if context.profile == StorageProfile::Private {
+                            "selected private papercuts file was not found".into()
+                        } else {
+                            format!("papercuts file not found: {}", path.display())
+                        },
+                        "Pass an existing --file PATH or run `papercuts add` to create a discovered default file.",
+                    ));
+                }
+                warnings.push("no papercuts file yet; papercuts add creates it".into());
+                store::FoldResult::default()
             }
-            warnings.push("no papercuts file yet; papercuts add creates it".into());
-            store::FoldResult::default()
+            Err(error) => return Err(error),
         }
-        Err(error) => return Err(error),
+    } else {
+        store::FoldResult::default()
     };
     warnings.extend(folded.warnings);
     let since = args
         .since
         .as_deref()
-        .map(|value| parse_since(value, now))
+        .map(|value| {
+            if since_is_relative(value) {
+                parse_since(value, context.effective_now()?)
+            } else {
+                parse_absolute_since(value)
+            }
+        })
         .transpose()?;
     let mut items: Vec<_> = folded
         .items
@@ -87,8 +101,7 @@ pub fn run(args: ListArgs, file: Option<PathBuf>, pretty: bool, now: Timestamp) 
     if args.format == OutputFormat::Md {
         write_markdown(&data.items, &warnings)?;
     } else {
-        let mut meta = Meta::new();
-        meta.file = Some(resolved.path.to_string_lossy().into_owned());
+        let mut meta = Meta::from_policy(&context, false);
         meta.warnings = warnings;
         output::write_success(data, pretty, meta)
             .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;

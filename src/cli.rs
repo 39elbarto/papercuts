@@ -1,4 +1,5 @@
 use crate::Severity;
+use crate::policy::{SensitiveCategory, SensitivePolicy, StorageProfile};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
@@ -19,6 +20,15 @@ pub struct Cli {
 
     #[arg(long, global = true)]
     pub pretty: bool,
+
+    #[arg(long, global = true, value_enum)]
+    pub profile: Option<StorageProfile>,
+
+    #[arg(long, global = true)]
+    pub read_only: bool,
+
+    #[arg(long, global = true, value_enum)]
+    pub sensitive_policy: Option<SensitivePolicy>,
 
     #[command(subcommand)]
     pub command: Command,
@@ -49,6 +59,8 @@ pub struct AddArgs {
     pub severity: Severity,
     #[arg(long)]
     pub dry_run: bool,
+    #[arg(long = "allow-sensitive", value_enum)]
+    pub allow_sensitive: Vec<SensitiveCategory>,
 }
 
 #[derive(Debug, Args)]
@@ -79,6 +91,8 @@ pub struct ResolveArgs {
     pub agent: Option<String>,
     #[arg(long)]
     pub dry_run: bool,
+    #[arg(long = "allow-sensitive", value_enum)]
+    pub allow_sensitive: Vec<SensitiveCategory>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -117,6 +131,7 @@ mod tests {
         };
         assert_eq!(args.text.as_deref(), Some("ouch"));
         assert_eq!(args.severity, Severity::Minor);
+        assert!(args.allow_sensitive.is_empty());
 
         let cli = Cli::try_parse_from(["papercuts", "list"]).unwrap();
         let Command::List(args) = cli.command else {
@@ -125,6 +140,27 @@ mod tests {
         assert_eq!(args.status, StatusFilter::Open);
         assert_eq!(args.limit, 50);
         assert_eq!(args.format, OutputFormat::Json);
+
+        let cli = Cli::try_parse_from([
+            "papercuts",
+            "--profile",
+            "committed",
+            "--read-only",
+            "--sensitive-policy",
+            "strict",
+            "add",
+            "x",
+            "--allow-sensitive",
+            "email_address",
+        ])
+        .unwrap();
+        assert_eq!(cli.profile, Some(StorageProfile::Committed));
+        assert!(cli.read_only);
+        assert_eq!(cli.sensitive_policy, Some(SensitivePolicy::Strict));
+        let Command::Add(args) = cli.command else {
+            panic!("expected add")
+        };
+        assert_eq!(args.allow_sensitive, [SensitiveCategory::EmailAddress]);
     }
 
     #[test]

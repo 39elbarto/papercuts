@@ -442,3 +442,88 @@ the dependency graph remained acyclic.
 Begin `br-hardened-papercuts-fork-x30.7`: implement the shared contract-2 typed
 policy and storage-resolution seam without widening into path projection or the
 scanner catalog owned by later Beads.
+
+## 2026-07-12 — Safe profile and storage resolution implementation
+
+### Outcome
+
+- Completed `br-hardened-papercuts-fork-x30.7` as the first phase-2 Rust
+  implementation slice.
+- Added one typed policy context that centrally resolves profile, target,
+  monotonic write policy, sensitive-policy floor and override inputs, agent
+  source, path policy, and lazy clock access.
+- Made `private` the default profile and selected one shared journal at
+  `GIT_COMMON_DIR/papercuts/log.jsonl` for ordinary and linked worktrees.
+- Kept repository-visible `.papercuts.jsonl` and the non-Git HOME target behind
+  the explicit `committed` compatibility profile.
+- Added exact flag/environment/profile target precedence, command-relevant
+  environment reads, native path-valued environment handling, and static
+  schema behavior that ignores ambient environment.
+- Added a monotonic read-only guard that refuses real add/resolve operations
+  before semantic input, clock, repository, storage, stdin, or journal I/O;
+  dry-run remains non-mutating and available where target semantics permit it.
+- Added private non-Git `storage_required`, legacy-only
+  `migration_required`, dual-journal warnings, no fallback, user-only Unix
+  creation modes, insecure-permission mutation refusal, and doctor reporting.
+- Added strict common-Git-directory resolution for ordinary repositories and
+  linked worktrees, nearest-invalid-marker refusal, and private final/implicit
+  directory symlink rejection while preserving committed symlink behavior.
+- Kept append, fold, lock, tear-heal, and duplicate semantics unchanged.
+- Published an intentionally transitional schema that describes the storage
+  seam exactly and explicitly marks legacy path projection as pending `x30.8`
+  and sensitive-content scanning/enforcement as pending `x30.9`; the fork still
+  makes no hardened-release claim.
+
+### Review findings integrated
+
+The first fresh-eyes cross-review found three blockers, all corrected and
+re-reviewed:
+
+- private explicit and implicit journals could follow final symlinks;
+- whitespace `--agent` validation ran before `writes_disabled`;
+- `schema record` and the all-schema metadata description did not exactly match
+  the transitional record and success metadata surfaces.
+
+The focused re-review passed all three fixes and found no regression in
+profile/target precedence, relevant environment reads, common-dir resolution,
+migration state, permissions, or append/lock invariants.
+
+### Verification
+
+- Release build: pass.
+- Unit tests: 6 passed.
+- Black-box CLI tests: 35 passed, including 11 new contract-2 scenarios.
+- Full test suite repeated five times after the final `store.rs` change: all
+  five runs passed with 35 CLI tests each.
+- Clippy with warnings denied: pass.
+- Formatting and `git diff --check`: pass.
+- Gitleaks: no leaks found across 17 commits and the working tree.
+- Current committed journal doctor: healthy, sixteen lines.
+- UBS `--diff`: completed but returned its known noisy Rust heuristic result:
+  four critical labels were test-only `panic!` assertions; remaining warnings
+  were test `unwrap`/assert inventory and pre-existing safe indexing/cast or
+  clone heuristics. Clippy, build, tests, manual review, and cross-review found
+  no corresponding production defect. The exact report is retained at
+  `/tmp/papercuts-x30.7-ubs-final.log` for this host session only.
+
+### Papercut observed
+
+`cargo test` accepts only one positional `TESTNAME` filter. A command that
+passed two test names failed before running either test. The corrected approach
+used separate invocations, and the event was recorded in the dogfood journal as
+`pc_9fc4bf4fbb25`.
+
+### Rollback
+
+Revert the focused implementation commit through normal Git history. Existing
+private and committed journals remain append-only and are not deleted, merged,
+or rewritten. To inspect the retained committed source explicitly, select the
+`committed` profile; do not silently fall back or move files.
+
+### Next step
+
+Closing `x30.7` unlocked both `x30.8` (privacy-preserving path/project
+metadata) and `x30.9` (local sensitive-data preflight). The graph remains a DAG
+with zero cycles, and `bv --robot-next` selects `x30.8` as the next highest-
+impact ready slice. Keep the two responsibilities separate despite their later
+shared schema and acceptance dependencies.

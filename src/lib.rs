@@ -2,6 +2,7 @@ pub mod cli;
 pub mod commands;
 pub mod error;
 pub mod output;
+pub mod policy;
 pub mod store;
 
 use crate::error::{AppError, AppResult};
@@ -107,11 +108,7 @@ pub fn format_timestamp(timestamp: Timestamp) -> String {
 }
 
 pub fn parse_since(value: &str, now: Timestamp) -> AppResult<Timestamp> {
-    if let Some((number, unit)) = value.split_at_checked(value.len().saturating_sub(1))
-        && !number.is_empty()
-        && number.bytes().all(|byte| byte.is_ascii_digit())
-        && matches!(unit, "d" | "h")
-    {
+    if let Some((number, unit)) = relative_since_parts(value) {
         let amount = number.parse::<i64>().map_err(|_| {
             AppError::invalid_argument(
                 format!("invalid --since value '{value}'"),
@@ -139,12 +136,28 @@ pub fn parse_since(value: &str, now: Timestamp) -> AppResult<Timestamp> {
             });
     }
 
+    parse_absolute_since(value)
+}
+
+pub fn since_is_relative(value: &str) -> bool {
+    relative_since_parts(value).is_some()
+}
+
+pub fn parse_absolute_since(value: &str) -> AppResult<Timestamp> {
     value.parse::<Timestamp>().map_err(|_| {
         AppError::invalid_argument(
-            format!("invalid --since value '{value}'"),
+            "invalid --since value",
             "Use a full RFC3339 timestamp such as 2026-07-09T18:30:00Z, or a relative value such as 7d or 12h.",
         )
     })
+}
+
+fn relative_since_parts(value: &str) -> Option<(&str, &str)> {
+    let (number, unit) = value.split_at_checked(value.len().saturating_sub(1))?;
+    (!number.is_empty()
+        && number.bytes().all(|byte| byte.is_ascii_digit())
+        && matches!(unit, "d" | "h"))
+    .then_some((number, unit))
 }
 
 pub fn compute_id(

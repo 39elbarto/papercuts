@@ -22,8 +22,12 @@ fn command() -> Command {
     let mut command = assert_cmd::cargo::cargo_bin_cmd!("papercuts");
     command
         .env("PAPERCUTS_NOW", NOW)
+        .env("PAPERCUTS_PROFILE", "committed")
         .env_remove("PAPERCUTS_FILE")
         .env_remove("PAPERCUTS_AGENT")
+        .env_remove("PAPERCUTS_READ_ONLY")
+        .env_remove("PAPERCUTS_SENSITIVE_POLICY")
+        .env_remove("PAPERCUTS_ALLOW_SENSITIVE")
         .env_remove("CLAUDECODE");
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("CODEX_")
@@ -54,6 +58,35 @@ fn temp_has_git_ancestor(temp: &TempDir) -> bool {
         .any(|ancestor| ancestor.join(".git").exists())
 }
 
+fn init_git(path: &Path) {
+    std::fs::create_dir_all(path).unwrap();
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("init")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn git(path: &Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn success<T: DeserializeOwned>(output: &std::process::Output) -> SuccessEnvelope<T> {
     assert!(
         output.status.success(),
@@ -72,7 +105,7 @@ fn error(output: &std::process::Output, exit: i32, code: &str) -> ErrorEnvelope 
     assert!(!envelope.ok);
     assert_eq!(envelope.error.code, code);
     assert!(!envelope.error.suggested_fix.is_empty());
-    assert_eq!(envelope.meta.contract, 1);
+    assert_eq!(envelope.meta.contract, 2);
     envelope
 }
 
@@ -118,7 +151,34 @@ fn every_command_success_envelope_deserializes() {
     assert_eq!(doctor.data.checked_lines, 2);
 
     let schema: SuccessEnvelope<Value> = success(&run(&["schema"]));
-    assert_eq!(schema.data["contract"], 1);
+    assert_eq!(schema.data["contract"], 2);
+    assert_eq!(
+        schema.data["implementation_status"]["storage_policy"],
+        "implemented by x30.7"
+    );
+    assert!(
+        schema.data["implementation_status"]["sensitive_preflight"]
+            .as_str()
+            .unwrap()
+            .contains("pending x30.9")
+    );
+    assert_eq!(
+        schema.data["success_envelope"]["meta"]["sensitive_policy"],
+        "balanced|strict on add/resolve"
+    );
+    let record_schema: SuccessEnvelope<Value> = success(&run(&["schema", "record"]));
+    assert!(
+        record_schema.data["records"]["cut"]["cwd"]
+            .as_str()
+            .unwrap()
+            .contains("new private cuts")
+    );
+    assert!(
+        record_schema.data["implementation_status"]["path_projection"]
+            .as_str()
+            .unwrap()
+            .contains("pending x30.8")
+    );
     assert_eq!(schema.data["exit_codes"]["74"], "I/O error");
     assert_eq!(schema.data["commands"]["doctor"]["read_only"], true);
 
@@ -173,7 +233,13 @@ fn add_stdin_validation_duplicate_and_exact_id() {
             .unwrap(),
     );
     assert!(!second.data.changed);
-    assert_eq!(second.meta.warnings.len(), 1);
+    assert!(
+        second
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "duplicate papercut; existing record returned")
+    );
     assert_eq!(std::fs::read_to_string(&file).unwrap().lines().count(), 1);
 
     let blank = command()
@@ -273,7 +339,13 @@ fn resolve_prefix_errors_and_idempotence_are_structured() {
     let second: SuccessEnvelope<ResolveData> =
         success(&run_file(&file, &["resolve", &id, "--agent", "fixer"]));
     assert!(!second.data.changed);
-    assert_eq!(second.meta.warnings, ["already resolved"]);
+    assert!(
+        second
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "already resolved")
+    );
 
     error(&run_file(&file, &["resolve", "abc"]), 2, "invalid_argument");
     error(&run_file(&file, &["resolve", "deadbeef"]), 66, "not_found");
@@ -306,15 +378,14 @@ fn structured_error_exit_matrix_and_help_exceptions() {
     let missing = temp.path().join("missing.jsonl");
     error(&run_file(&missing, &["list"]), 66, "not_found");
     error(&run(&["list", "--format", "jsonl"]), 2, "invalid_argument");
-    error(
+    let schema_ignores_clock: SuccessEnvelope<Value> = success(
         &command()
             .env("PAPERCUTS_NOW", "not-a-time")
             .args(["schema"])
             .output()
             .unwrap(),
-        78,
-        "config_error",
     );
+    assert_eq!(schema_ignores_clock.data["contract"], 2);
     error(
         &run_file(&missing, &["add", " ", "--agent", "tester"]),
         65,
@@ -629,12 +700,21 @@ fn doctor_finding_counts(
 }
 
 #[test]
-fn discovery_precedence_virtual_empty_and_git_file_root() {
+fn discovery_precedence_virtual_empty_and_valid_git_root() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("repo");
     let nested = root.join("a/b");
     std::fs::create_dir_all(&nested).unwrap();
-    std::fs::write(root.join(".git"), "gitdir: elsewhere\n").unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("init")
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
     let env_file = temp.path().join("env.jsonl");
     let flag_file = temp.path().join("flag.jsonl");
 
@@ -995,4 +1075,719 @@ fn error_envelope_matrix() {
         65,
         "ambiguous_id",
     );
+}
+
+#[test]
+fn contract2_policy_and_target_precedence_are_explicit() {
+    let temp = TempDir::new().unwrap();
+    let env_file = temp.path().join("env.jsonl");
+    let flag_file = temp.path().join("flag.jsonl");
+    let output = command()
+        .env("PAPERCUTS_PROFILE", "committed")
+        .env("PAPERCUTS_FILE", &env_file)
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&flag_file)
+        .args(["add", "preview", "--agent", "tester", "--dry-run"])
+        .output()
+        .unwrap();
+    let envelope: SuccessEnvelope<AddData> = success(&output);
+    assert_eq!(envelope.meta.contract, 2);
+    assert_eq!(envelope.meta.storage_profile.as_deref(), Some("private"));
+    assert_eq!(
+        envelope.meta.profile_source.as_deref(),
+        Some("flag-profile")
+    );
+    assert_eq!(envelope.meta.storage_source.as_deref(), Some("flag-file"));
+    assert_eq!(envelope.meta.write_policy.as_deref(), Some("normal"));
+    assert_eq!(envelope.meta.path_policy.as_deref(), Some("omitted"));
+    assert_eq!(envelope.meta.sensitive_policy.as_deref(), Some("balanced"));
+    assert_eq!(
+        envelope.meta.sensitive_policy_source.as_deref(),
+        Some("profile-default")
+    );
+    assert_eq!(envelope.meta.sensitive_policy_version, Some(1));
+    assert_eq!(envelope.meta.file, None, "private metadata must hide paths");
+    assert_eq!(envelope.data.record.cwd, ".");
+    assert_eq!(envelope.data.record.repo, None);
+    assert!(!env_file.exists());
+    assert!(!flag_file.exists());
+
+    let committed: SuccessEnvelope<AddData> = success(
+        &command()
+            .env("PAPERCUTS_PROFILE", "committed")
+            .arg("--file")
+            .arg(&flag_file)
+            .args(["add", "preview", "--agent", "tester", "--dry-run"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(committed.meta.storage_profile.as_deref(), Some("committed"));
+    assert_eq!(
+        committed.meta.profile_source.as_deref(),
+        Some("env-profile")
+    );
+    assert_eq!(
+        committed.meta.path_policy.as_deref(),
+        Some("legacy-absolute")
+    );
+    assert_eq!(committed.meta.sensitive_policy.as_deref(), Some("strict"));
+    assert_eq!(
+        committed.meta.file.as_deref(),
+        Some(flag_file.to_str().unwrap())
+    );
+
+    let private_default: SuccessEnvelope<AddData> = success(
+        &command()
+            .env_remove("PAPERCUTS_PROFILE")
+            .env("PAPERCUTS_FILE", &env_file)
+            .args(["add", "preview", "--agent", "tester", "--dry-run"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        private_default.meta.storage_profile.as_deref(),
+        Some("private")
+    );
+    assert_eq!(
+        private_default.meta.profile_source.as_deref(),
+        Some("default")
+    );
+    assert_eq!(
+        private_default.meta.storage_source.as_deref(),
+        Some("env-file")
+    );
+    assert_eq!(private_default.meta.file, None);
+}
+
+#[test]
+fn read_only_is_monotonic_and_precedes_clock_storage_and_stdin() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("never-created.jsonl");
+    let env_guard = command()
+        .env("PAPERCUTS_READ_ONLY", "true")
+        .env("PAPERCUTS_NOW", "invalid-clock")
+        .arg("--file")
+        .arg(&file)
+        .args(["add", "-", "--agent", "tester"])
+        .write_stdin("not consumed")
+        .output()
+        .unwrap();
+    error(&env_guard, 78, "writes_disabled");
+    assert!(!file.exists());
+
+    let flag_guard = command()
+        .env("PAPERCUTS_READ_ONLY", "false")
+        .arg("--read-only")
+        .arg("--file")
+        .arg(&file)
+        .args(["add", "blocked", "--agent", "tester"])
+        .output()
+        .unwrap();
+    error(&flag_guard, 78, "writes_disabled");
+    assert!(!file.exists());
+
+    let invalid_env = command()
+        .env("PAPERCUTS_READ_ONLY", "sometimes")
+        .arg("--read-only")
+        .arg("--file")
+        .arg(&file)
+        .args(["add", "blocked", "--agent", "tester"])
+        .output()
+        .unwrap();
+    error(&invalid_env, 78, "config_error");
+
+    let preview: SuccessEnvelope<AddData> = success(
+        &command()
+            .env("PAPERCUTS_READ_ONLY", "true")
+            .arg("--file")
+            .arg(&file)
+            .args(["add", "preview", "--agent", "tester", "--dry-run"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(preview.meta.write_policy.as_deref(), Some("read-only"));
+    assert!(!file.exists());
+
+    let resolve_guard = command()
+        .env("PAPERCUTS_READ_ONLY", "true")
+        .arg("--file")
+        .arg(&file)
+        .args(["resolve", "not-an-id"])
+        .output()
+        .unwrap();
+    error(&resolve_guard, 78, "writes_disabled");
+
+    let agent_guard = command()
+        .env("PAPERCUTS_READ_ONLY", "true")
+        .arg("--file")
+        .arg(&file)
+        .args(["add", "blocked", "--agent", " "])
+        .output()
+        .unwrap();
+    error(&agent_guard, 78, "writes_disabled");
+
+    let invalid_agent = command()
+        .arg("--file")
+        .arg(&file)
+        .args(["add", "preview", "--agent", " ", "--dry-run"])
+        .output()
+        .unwrap();
+    error(&invalid_agent, 65, "invalid_input");
+}
+
+#[test]
+fn commands_read_only_the_environment_that_can_affect_them() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("cuts.jsonl");
+    add(&file, "existing");
+
+    let ignored = command()
+        .arg("--file")
+        .arg(&file)
+        .env("PAPERCUTS_AGENT", "ignored")
+        .env("PAPERCUTS_SENSITIVE_POLICY", "invalid")
+        .env("PAPERCUTS_ALLOW_SENSITIVE", "invalid")
+        .env("PAPERCUTS_NOW", "invalid")
+        .arg("list")
+        .output()
+        .unwrap();
+    let listed: SuccessEnvelope<ListData> = success(&ignored);
+    assert_eq!(listed.data.count, 1);
+    assert_eq!(listed.meta.sensitive_policy, None);
+
+    let absolute: SuccessEnvelope<ListData> = success(
+        &command()
+            .arg("--file")
+            .arg(&file)
+            .env("PAPERCUTS_NOW", "invalid")
+            .args(["list", "--since", "2026-07-01T00:00:00Z"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(absolute.data.count, 1);
+
+    let relative = command()
+        .arg("--file")
+        .arg(&file)
+        .env("PAPERCUTS_NOW", "invalid")
+        .args(["list", "--since", "1d"])
+        .output()
+        .unwrap();
+    error(&relative, 78, "config_error");
+
+    let doctor: SuccessEnvelope<DoctorData> = success(
+        &command()
+            .arg("--file")
+            .arg(&file)
+            .env("PAPERCUTS_AGENT", "ignored")
+            .env("PAPERCUTS_SENSITIVE_POLICY", "invalid")
+            .env("PAPERCUTS_ALLOW_SENSITIVE", "invalid")
+            .env("PAPERCUTS_NOW", "invalid")
+            .arg("doctor")
+            .output()
+            .unwrap(),
+    );
+    assert!(doctor.data.healthy);
+
+    let schema: SuccessEnvelope<Value> = success(
+        &command()
+            .env("PAPERCUTS_PROFILE", "invalid")
+            .env("PAPERCUTS_READ_ONLY", "invalid")
+            .env("PAPERCUTS_SENSITIVE_POLICY", "invalid")
+            .env("PAPERCUTS_ALLOW_SENSITIVE", "invalid")
+            .env("PAPERCUTS_AGENT", "ignored")
+            .env("PAPERCUTS_NOW", "invalid")
+            .env_remove("HOME")
+            .arg("schema")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(schema.data["contract"], 2);
+    assert_eq!(schema.meta.storage_profile, None);
+}
+
+#[cfg(unix)]
+#[test]
+fn private_default_uses_common_git_storage_with_user_only_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("repo");
+    init_git(&repo);
+    let nested = repo.join("nested/work");
+    std::fs::create_dir_all(&nested).unwrap();
+
+    let added: SuccessEnvelope<AddData> = success(
+        &command()
+            .current_dir(&nested)
+            .arg("--profile")
+            .arg("private")
+            .args(["add", "private cut", "--agent", "tester"])
+            .output()
+            .unwrap(),
+    );
+    let private_dir = repo.join(".git/papercuts");
+    let private_file = private_dir.join("log.jsonl");
+    assert!(private_file.is_file());
+    assert!(!repo.join(".papercuts.jsonl").exists());
+    assert_eq!(added.meta.file, None);
+    assert_eq!(added.data.record.cwd, ".");
+    assert_eq!(added.data.record.repo, None);
+    assert_eq!(
+        std::fs::metadata(&private_dir)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::metadata(&private_file)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+
+    let listed: SuccessEnvelope<ListData> = success(
+        &command()
+            .current_dir(&repo)
+            .arg("--profile")
+            .arg("private")
+            .args(["list", "--status", "all"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(listed.data.count, 1);
+    assert_eq!(listed.meta.file, None);
+
+    let committed: SuccessEnvelope<AddData> = success(
+        &command()
+            .current_dir(&repo)
+            .arg("--profile")
+            .arg("committed")
+            .args(["add", "visible cut", "--agent", "tester"])
+            .output()
+            .unwrap(),
+    );
+    assert!(repo.join(".papercuts.jsonl").is_file());
+    assert_eq!(
+        committed.meta.file.as_deref(),
+        Some(repo.join(".papercuts.jsonl").to_str().unwrap())
+    );
+}
+
+#[test]
+fn private_non_git_and_legacy_migration_states_are_explicit() {
+    let temp = TempDir::new().unwrap();
+    if temp_has_git_ancestor(&temp) {
+        return;
+    }
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    let virtual_empty: SuccessEnvelope<ListData> = success(
+        &command()
+            .current_dir(&outside)
+            .arg("--profile")
+            .arg("private")
+            .arg("list")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(virtual_empty.data.count, 0);
+    assert!(
+        virtual_empty
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "storage_required_for_writes")
+    );
+    let no_storage = command()
+        .current_dir(&outside)
+        .arg("--profile")
+        .arg("private")
+        .args(["add", "preview", "--dry-run"])
+        .output()
+        .unwrap();
+    error(&no_storage, 78, "storage_required");
+
+    let repo = temp.path().join("repo");
+    init_git(&repo);
+    let legacy_add: SuccessEnvelope<AddData> = success(
+        &command()
+            .current_dir(&repo)
+            .arg("--profile")
+            .arg("committed")
+            .args(["add", "legacy", "--agent", "tester"])
+            .output()
+            .unwrap(),
+    );
+    let legacy = repo.join(".papercuts.jsonl");
+    let private = repo.join(".git/papercuts/log.jsonl");
+    assert!(legacy.is_file());
+    assert!(!private.exists());
+
+    let private_list: SuccessEnvelope<ListData> = success(
+        &command()
+            .current_dir(&repo)
+            .arg("--profile")
+            .arg("private")
+            .arg("list")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(private_list.data.count, 0);
+    assert!(
+        private_list
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "legacy_journal_detected")
+    );
+
+    let blocked = command()
+        .current_dir(&repo)
+        .arg("--profile")
+        .arg("private")
+        .args(["add", "new", "--agent", "tester"])
+        .output()
+        .unwrap();
+    error(&blocked, 78, "migration_required");
+    assert!(!private.exists());
+
+    let preview: SuccessEnvelope<AddData> = success(
+        &command()
+            .current_dir(&repo)
+            .arg("--profile")
+            .arg("private")
+            .args(["add", "new", "--agent", "tester", "--dry-run"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        preview
+            .meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "legacy_journal_detected")
+    );
+    let resolve_preview = command()
+        .current_dir(&repo)
+        .arg("--profile")
+        .arg("private")
+        .args(["resolve", &legacy_add.data.record.id, "--dry-run"])
+        .output()
+        .unwrap();
+    error(&resolve_preview, 78, "migration_required");
+
+    std::fs::create_dir_all(private.parent().unwrap()).unwrap();
+    std::fs::copy(&legacy, &private).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            private.parent().unwrap(),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let dual: SuccessEnvelope<ListData> = success(
+        &command()
+            .current_dir(&repo)
+            .arg("--profile")
+            .arg("private")
+            .args(["list", "--status", "all"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(dual.data.count, 1);
+    assert!(
+        dual.meta
+            .warnings
+            .iter()
+            .any(|warning| warning == "legacy_journal_retained")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn insecure_implicit_private_permissions_block_mutation_and_doctor_reports() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("repo");
+    init_git(&repo);
+    let private_dir = repo.join(".git/papercuts");
+    let private_file = private_dir.join("log.jsonl");
+    std::fs::create_dir_all(&private_dir).unwrap();
+    std::fs::write(&private_file, b"").unwrap();
+    std::fs::set_permissions(&private_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(&private_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let blocked = command()
+        .current_dir(&repo)
+        .arg("--profile")
+        .arg("private")
+        .args(["add", "blocked", "--agent", "tester"])
+        .output()
+        .unwrap();
+    error(&blocked, 77, "insecure_private_permissions");
+    assert!(std::fs::read(&private_file).unwrap().is_empty());
+
+    let doctor_output = command()
+        .current_dir(&repo)
+        .arg("--profile")
+        .arg("private")
+        .arg("doctor")
+        .output()
+        .unwrap();
+    assert_eq!(doctor_output.status.code(), Some(1));
+    let doctor: SuccessEnvelope<DoctorData> =
+        serde_json::from_slice(&doctor_output.stdout).unwrap();
+    assert!(
+        doctor
+            .data
+            .findings
+            .iter()
+            .any(|finding| finding.kind == "insecure_private_permissions")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn private_profile_rejects_final_and_implicit_directory_symlinks() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let temp = TempDir::new().unwrap();
+    let target = temp.path().join("target.jsonl");
+    let link = temp.path().join("private-link.jsonl");
+    add(&target, "existing");
+    let before = std::fs::read(&target).unwrap();
+    symlink(&target, &link).unwrap();
+
+    for args in [
+        vec!["add", "blocked", "--agent", "tester"],
+        vec!["add", "preview", "--agent", "tester", "--dry-run"],
+        vec!["list"],
+    ] {
+        let output = command()
+            .arg("--profile")
+            .arg("private")
+            .arg("--file")
+            .arg(&link)
+            .args(args)
+            .output()
+            .unwrap();
+        error(&output, 78, "unsafe_journal_symlink");
+        assert_eq!(std::fs::read(&target).unwrap(), before);
+    }
+
+    let committed: SuccessEnvelope<ListData> = success(
+        &command()
+            .arg("--profile")
+            .arg("committed")
+            .arg("--file")
+            .arg(&link)
+            .args(["list", "--status", "all"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(committed.data.count, 1);
+
+    let repo = temp.path().join("repo");
+    init_git(&repo);
+    let redirected = temp.path().join("redirected-private");
+    std::fs::create_dir_all(&redirected).unwrap();
+    std::fs::set_permissions(&redirected, std::fs::Permissions::from_mode(0o700)).unwrap();
+    symlink(&redirected, repo.join(".git/papercuts")).unwrap();
+    let implicit = command()
+        .current_dir(&repo)
+        .arg("--profile")
+        .arg("private")
+        .args(["add", "blocked", "--agent", "tester"])
+        .output()
+        .unwrap();
+    error(&implicit, 78, "unsafe_journal_symlink");
+    assert!(!redirected.join("log.jsonl").exists());
+}
+
+#[test]
+fn linked_worktrees_share_one_private_journal() {
+    let temp = TempDir::new().unwrap();
+    let repo = temp.path().join("repo");
+    let linked = temp.path().join("linked");
+    init_git(&repo);
+    git(
+        &repo,
+        &["config", "user.email", "papercuts@example.invalid"],
+    );
+    git(&repo, &["config", "user.name", "Papercuts Test"]);
+    std::fs::write(repo.join("README"), "fixture\n").unwrap();
+    git(&repo, &["add", "README"]);
+    git(&repo, &["commit", "-m", "fixture"]);
+    git(
+        &repo,
+        &["worktree", "add", "--detach", linked.to_str().unwrap()],
+    );
+
+    let added: SuccessEnvelope<AddData> = success(
+        &command()
+            .current_dir(&repo)
+            .arg("--profile")
+            .arg("private")
+            .args(["add", "shared", "--agent", "tester"])
+            .output()
+            .unwrap(),
+    );
+    let listed: SuccessEnvelope<ListData> = success(
+        &command()
+            .current_dir(&linked)
+            .arg("--profile")
+            .arg("private")
+            .args(["list", "--status", "all"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(listed.data.count, 1);
+    assert_eq!(listed.data.items[0].cut.id, added.data.record.id);
+    assert_eq!(
+        std::fs::read_to_string(repo.join(".git/papercuts/log.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn malformed_nearest_git_marker_never_falls_back_to_outer_repository() {
+    let temp = TempDir::new().unwrap();
+    let outer = temp.path().join("outer");
+    init_git(&outer);
+    let nested = outer.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join(".git"), "gitdir: missing-admin-dir\n").unwrap();
+    let output = command()
+        .current_dir(&nested)
+        .arg("--profile")
+        .arg("private")
+        .arg("list")
+        .output()
+        .unwrap();
+    error(&output, 78, "invalid_repository");
+    assert!(!outer.join(".git/papercuts/log.jsonl").exists());
+
+    let invalid_id = command()
+        .current_dir(&nested)
+        .arg("--profile")
+        .arg("private")
+        .args(["resolve", "not-an-id"])
+        .output()
+        .unwrap();
+    error(&invalid_id, 2, "invalid_argument");
+}
+
+#[test]
+fn sensitive_policy_floor_and_override_gate_are_centralized() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("cuts.jsonl");
+    let weak = command()
+        .arg("--profile")
+        .arg("committed")
+        .arg("--sensitive-policy")
+        .arg("balanced")
+        .arg("--file")
+        .arg(&file)
+        .args(["add", "x", "--dry-run"])
+        .output()
+        .unwrap();
+    error(&weak, 78, "config_error");
+
+    let no_gate = command()
+        .arg("--profile")
+        .arg("private")
+        .arg("--file")
+        .arg(&file)
+        .args([
+            "add",
+            "x",
+            "--dry-run",
+            "--allow-sensitive",
+            "email_address",
+        ])
+        .output()
+        .unwrap();
+    error(&no_gate, 78, "config_error");
+
+    let gated: SuccessEnvelope<AddData> = success(
+        &command()
+            .env("PAPERCUTS_ALLOW_SENSITIVE", "true")
+            .arg("--profile")
+            .arg("private")
+            .arg("--sensitive-policy")
+            .arg("strict")
+            .arg("--file")
+            .arg(&file)
+            .args([
+                "add",
+                "x",
+                "--dry-run",
+                "--allow-sensitive",
+                "email_address",
+                "--allow-sensitive",
+                "email_address",
+            ])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(gated.meta.sensitive_policy.as_deref(), Some("strict"));
+    assert_eq!(gated.meta.sensitive_policy_source.as_deref(), Some("flag"));
+}
+
+#[cfg(unix)]
+#[test]
+fn path_environment_keeps_native_encoding_while_text_policy_requires_utf8() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let temp = TempDir::new().unwrap();
+    let mut bytes = temp.path().as_os_str().as_encoded_bytes().to_vec();
+    bytes.extend_from_slice(b"/native-");
+    bytes.push(0xff);
+    bytes.extend_from_slice(b".jsonl");
+    let native = OsString::from_vec(bytes);
+    let preview: SuccessEnvelope<AddData> = success(
+        &command()
+            .env("PAPERCUTS_PROFILE", "private")
+            .env("PAPERCUTS_FILE", &native)
+            .args(["add", "preview", "--dry-run"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(preview.meta.storage_source.as_deref(), Some("env-file"));
+    assert_eq!(preview.meta.file, None);
+
+    let invalid_text = command()
+        .env(
+            "PAPERCUTS_PROFILE",
+            OsString::from_vec(vec![b'p', 0xff, b'r']),
+        )
+        .arg("schema")
+        .output()
+        .unwrap();
+    success::<Value>(&invalid_text);
+
+    let invalid_text = command()
+        .env(
+            "PAPERCUTS_PROFILE",
+            OsString::from_vec(vec![b'p', 0xff, b'r']),
+        )
+        .arg("list")
+        .output()
+        .unwrap();
+    error(&invalid_text, 78, "config_error");
 }

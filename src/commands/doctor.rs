@@ -1,11 +1,11 @@
 use crate::error::{AppError, AppResult};
 use crate::output::{self, Meta};
+use crate::policy::{PolicyContext, StorageProfile};
 use crate::store;
 use crate::{CutRecord, ResolveRecord, compute_id};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
@@ -23,41 +23,57 @@ pub struct Finding {
     pub message: String,
 }
 
-pub fn run(file: Option<PathBuf>, pretty: bool) -> AppResult<i32> {
-    let resolved = store::discover(file)?;
-    let mut warnings = Vec::new();
-    let (mut data, file_existed) = match store::with_shared(&resolved.path, |log| {
-        let bytes = store::read_bytes(log, &resolved.path)?;
-        Ok(inspect(&bytes))
-    }) {
-        Ok(data) => (data, true),
-        Err(error) if error.code == "not_found" && error.exit_code == 66 => {
-            if resolved.explicit {
-                return Err(AppError::not_found(
-                    format!("papercuts file not found: {}", resolved.path.display()),
-                    "Pass an existing --file PATH or omit --file to inspect discovered state.",
-                ));
-            }
-            warnings.push("no papercuts file yet; healthy empty state".into());
-            (
-                DoctorData {
-                    healthy: true,
-                    findings: Vec::new(),
-                    checked_lines: 0,
-                },
-                false,
-            )
-        }
-        Err(error) => return Err(error),
+pub fn run(context: PolicyContext, pretty: bool) -> AppResult<i32> {
+    let resolved = &context.storage;
+    let mut warnings = resolved.warnings.clone();
+    let empty = || DoctorData {
+        healthy: true,
+        findings: Vec::new(),
+        checked_lines: 0,
     };
+    let (mut data, file_existed) = if let Some(path) = resolved.path.as_deref() {
+        match store::with_shared_resolved(resolved, |log| {
+            let bytes = store::read_bytes(log, path)?;
+            Ok(inspect(&bytes))
+        }) {
+            Ok(data) => (data, true),
+            Err(error) if error.code == "not_found" && error.exit_code == 66 => {
+                if resolved.explicit {
+                    return Err(AppError::not_found(
+                        if context.profile == StorageProfile::Private {
+                            "selected private papercuts file was not found".into()
+                        } else {
+                            format!("papercuts file not found: {}", path.display())
+                        },
+                        "Pass an existing --file PATH or omit --file to inspect discovered state.",
+                    ));
+                }
+                warnings.push("no papercuts file yet; healthy empty state".into());
+                (empty(), false)
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        (empty(), false)
+    };
+    if !store::private_permissions_secure(resolved)? {
+        data.findings.push(Finding {
+            line: 0,
+            kind: "insecure_private_permissions".into(),
+            message: "implicit private storage is accessible beyond the current user".into(),
+        });
+        data.healthy = false;
+    }
     if file_existed
+        && context.profile == StorageProfile::Committed
         && let Some(repo) = resolved.repo.as_ref()
-        && resolved.path.starts_with(repo)
+        && let Some(path) = resolved.path.as_ref()
+        && path.starts_with(repo)
         && Command::new("git")
             .arg("-C")
             .arg(repo)
             .args(["check-ignore", "-q", "--"])
-            .arg(&resolved.path)
+            .arg(path)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -71,8 +87,7 @@ pub fn run(file: Option<PathBuf>, pretty: bool) -> AppResult<i32> {
         data.healthy = false;
     }
     let exit = i32::from(!data.healthy);
-    let mut meta = Meta::new();
-    meta.file = Some(resolved.path.to_string_lossy().into_owned());
+    let mut meta = Meta::from_policy(&context, false);
     meta.warnings = warnings;
     output::write_success(data, pretty, meta)
         .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;

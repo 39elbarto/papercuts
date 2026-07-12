@@ -1,12 +1,11 @@
 use crate::cli::AddArgs;
 use crate::error::{AppError, AppResult};
 use crate::output::{self, Meta};
+use crate::policy::{PolicyContext, StorageProfile};
 use crate::store;
-use crate::{CutRecord, compute_id, format_timestamp, resolve_agent};
-use jiff::Timestamp;
+use crate::{CutRecord, compute_id, format_timestamp};
 use serde::{Deserialize, Serialize};
 use std::io::{IsTerminal, Read};
-use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddData {
@@ -14,8 +13,8 @@ pub struct AddData {
     pub record: CutRecord,
 }
 
-pub fn run(args: AddArgs, file: Option<PathBuf>, pretty: bool, now: Timestamp) -> AppResult<i32> {
-    let resolved = store::discover(file)?;
+pub fn run(args: AddArgs, context: PolicyContext, pretty: bool) -> AppResult<i32> {
+    let resolved = &context.storage;
     let text = read_text(args.text)?;
     if text.trim().is_empty() {
         return Err(AppError::invalid_input(
@@ -32,26 +31,35 @@ pub fn run(args: AddArgs, file: Option<PathBuf>, pretty: bool, now: Timestamp) -
             "Shorten the papercut text to at most 10000 UTF-8 bytes.",
         ));
     }
-    if args
+    let identity = context
         .agent
-        .as_deref()
-        .is_some_and(|agent| agent.trim().is_empty())
-    {
+        .as_ref()
+        .ok_or_else(|| AppError::internal("add policy omitted agent identity"))?;
+    if identity.value.trim().is_empty() {
         return Err(AppError::invalid_input(
             "agent name cannot be empty or whitespace-only",
-            "Pass a non-empty --agent NAME or omit the flag.",
+            "Pass a non-empty --agent NAME, set PAPERCUTS_AGENT, or omit both.",
         ));
     }
-    let (agent, source) = resolve_agent(args.agent);
-    if agent.trim().is_empty() {
-        return Err(AppError::invalid_input(
-            "agent name cannot be whitespace-only",
-            "Pass a non-empty --agent NAME or set PAPERCUTS_AGENT.",
-        ));
-    }
+    let agent = identity.value.clone();
     let mut tags = args.tags;
     tags.sort();
+    let now = context.effective_now()?;
     let ts = format_timestamp(now);
+    let (cwd, repo) = if context.profile == StorageProfile::Private {
+        (".".into(), None)
+    } else {
+        (
+            std::env::current_dir()
+                .map_err(|error| AppError::from_io(error, std::path::Path::new(".")))?
+                .to_string_lossy()
+                .into_owned(),
+            resolved
+                .repo
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+        )
+    };
     let record = CutRecord {
         kind: "cut".into(),
         id: compute_id(&ts, &agent, &text, args.severity, &tags),
@@ -60,14 +68,8 @@ pub fn run(args: AddArgs, file: Option<PathBuf>, pretty: bool, now: Timestamp) -
         text,
         tags,
         severity: args.severity,
-        cwd: std::env::current_dir()
-            .map_err(|error| AppError::from_io(error, std::path::Path::new(".")))?
-            .to_string_lossy()
-            .into_owned(),
-        repo: resolved
-            .repo
-            .as_ref()
-            .map(|path| path.to_string_lossy().into_owned()),
+        cwd,
+        repo,
     };
 
     let mut warnings = Vec::new();
@@ -75,8 +77,9 @@ pub fn run(args: AddArgs, file: Option<PathBuf>, pretty: bool, now: Timestamp) -
         warnings.push("dry run; no record appended".into());
         (false, record)
     } else {
-        store::with_exclusive(&resolved.path, true, |log| {
-            let bytes = store::read_bytes(log, &resolved.path)?;
+        let path = resolved.path()?.to_path_buf();
+        store::with_exclusive_resolved(resolved, true, |log| {
+            let bytes = store::read_bytes(log, &path)?;
             if let Some(existing) = store::fold_bytes(&bytes)
                 .items
                 .into_iter()
@@ -84,17 +87,16 @@ pub fn run(args: AddArgs, file: Option<PathBuf>, pretty: bool, now: Timestamp) -
             {
                 return Ok((false, existing.cut));
             }
-            store::append_json(log, &resolved.path, &bytes, &record)?;
+            store::append_json(log, &path, &bytes, &record)?;
             Ok((true, record))
         })?
     };
     if !changed && !args.dry_run {
         warnings.push("duplicate papercut; existing record returned".into());
     }
-    let mut meta = Meta::new();
-    meta.file = Some(resolved.path.to_string_lossy().into_owned());
-    meta.agent_source = Some(source.into());
-    meta.warnings = warnings;
+    let mut meta = Meta::from_policy(&context, true);
+    meta.agent_source = Some(identity.source.into());
+    meta.warnings.extend(warnings);
     output::write_success(AddData { changed, record }, pretty, meta)
         .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;
     Ok(0)

@@ -65,6 +65,41 @@ pub const ERROR_CONTRACT: &[ErrorContract] = &[
         description: "configuration error",
     },
     ErrorContract {
+        code: "writes_disabled",
+        exit_code: 78,
+        description: "writes disabled by monotonic policy",
+    },
+    ErrorContract {
+        code: "storage_required",
+        exit_code: 78,
+        description: "explicit storage required",
+    },
+    ErrorContract {
+        code: "migration_required",
+        exit_code: 78,
+        description: "explicit storage migration required",
+    },
+    ErrorContract {
+        code: "invalid_repository",
+        exit_code: 78,
+        description: "invalid repository metadata",
+    },
+    ErrorContract {
+        code: "unsupported_filesystem",
+        exit_code: 78,
+        description: "unsupported filesystem",
+    },
+    ErrorContract {
+        code: "unsafe_journal_symlink",
+        exit_code: 78,
+        description: "unsafe private journal symlink",
+    },
+    ErrorContract {
+        code: "insecure_private_permissions",
+        exit_code: 77,
+        description: "private storage is not user-only",
+    },
+    ErrorContract {
         code: "internal",
         exit_code: 70,
         description: "internal error",
@@ -118,6 +153,60 @@ impl AppError {
 
     pub fn config(message: impl Into<String>, fix: impl Into<String>) -> Self {
         Self::new("config_error", message, false, fix)
+    }
+
+    pub fn writes_disabled() -> Self {
+        Self::new(
+            "writes_disabled",
+            "writes are disabled for this invocation",
+            false,
+            "Continue without appending, or ask the operator to run an approved write-capable task.",
+        )
+    }
+
+    pub fn storage_required() -> Self {
+        Self::new(
+            "storage_required",
+            "private storage requires an explicit journal outside a Git working tree",
+            false,
+            "Choose an approved private location and pass it with --file or PAPERCUTS_FILE.",
+        )
+    }
+
+    pub fn migration_required() -> Self {
+        Self::new(
+            "migration_required",
+            "a legacy journal exists but private storage has not been selected by migration",
+            false,
+            "Review and copy the legacy journal with the documented copy-and-verify procedure before writing.",
+        )
+    }
+
+    pub fn invalid_repository(message: impl Into<String>) -> Self {
+        Self::new(
+            "invalid_repository",
+            message,
+            false,
+            "Repair the nearest Git metadata or use an explicit approved journal outside that repository.",
+        )
+    }
+
+    pub fn insecure_private_permissions() -> Self {
+        Self::new(
+            "insecure_private_permissions",
+            "implicit private storage is accessible beyond the current user",
+            false,
+            "Review the private journal and directory permissions, then restrict them to the current user.",
+        )
+    }
+
+    pub fn unsafe_journal_symlink() -> Self {
+        Self::new(
+            "unsafe_journal_symlink",
+            "the selected private journal must not be a symlink",
+            false,
+            "Choose a regular private journal file and review the storage location without pasting it into logs.",
+        )
     }
 
     pub fn lock_timeout(path: &std::path::Path) -> Self {

@@ -1,4 +1,5 @@
 use crate::error::{AppError, AppResult};
+use crate::policy::{StorageIntent, StorageProfile};
 use crate::{CutRecord, ItemStatus, ListItem, Resolution, ResolveRecord};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -11,11 +12,46 @@ use std::time::Duration;
 const LOCK_ATTEMPTS: usize = 50;
 const LOCK_DELAY: Duration = Duration::from_millis(100);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageSource {
+    FlagFile,
+    EnvFile,
+    ProfileDefault,
+}
+
+impl StorageSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::FlagFile => "flag-file",
+            Self::EnvFile => "env-file",
+            Self::ProfileDefault => "profile-default",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MigrationState {
+    None,
+    LegacyOnly,
+    Dual,
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedFile {
-    pub path: PathBuf,
+    pub path: Option<PathBuf>,
+    pub profile: StorageProfile,
     pub explicit: bool,
     pub repo: Option<PathBuf>,
+    pub source: StorageSource,
+    pub private_implicit: bool,
+    pub migration: MigrationState,
+    pub warnings: Vec<String>,
+}
+
+impl ResolvedFile {
+    pub fn path(&self) -> AppResult<&Path> {
+        self.path.as_deref().ok_or_else(AppError::storage_required)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -34,53 +70,277 @@ struct WarningCounts {
     orphans: usize,
 }
 
-pub fn discover(flag: Option<PathBuf>) -> AppResult<ResolvedFile> {
+#[derive(Debug, Clone)]
+pub struct Repository {
+    pub root: PathBuf,
+    pub git_dir: PathBuf,
+    pub common_dir: PathBuf,
+}
+
+pub fn discover(
+    flag: Option<PathBuf>,
+    profile: StorageProfile,
+    intent: StorageIntent,
+) -> AppResult<ResolvedFile> {
     let cwd = std::env::current_dir().map_err(|error| AppError::from_io(error, Path::new(".")))?;
-    let repo = find_repo_root(&cwd);
+    let repository = resolve_repository(&cwd)?;
     if let Some(path) = flag {
+        if path.as_os_str().is_empty() {
+            return Err(AppError::invalid_argument(
+                "--file requires a non-empty path",
+                "Pass a non-empty --file PATH or omit the flag.",
+            ));
+        }
         return Ok(ResolvedFile {
-            path: absolute(&cwd, path),
+            path: Some(absolute(&cwd, path)),
+            profile,
             explicit: true,
-            repo,
+            repo: repository.as_ref().map(|repo| repo.root.clone()),
+            source: StorageSource::FlagFile,
+            private_implicit: false,
+            migration: MigrationState::None,
+            warnings: exposure_warnings(profile),
         });
     }
     if let Some(path) = std::env::var_os("PAPERCUTS_FILE")
         && !path.is_empty()
     {
         return Ok(ResolvedFile {
-            path: absolute(&cwd, PathBuf::from(path)),
+            path: Some(absolute(&cwd, PathBuf::from(path))),
+            profile,
             explicit: true,
-            repo,
+            repo: repository.as_ref().map(|repo| repo.root.clone()),
+            source: StorageSource::EnvFile,
+            private_implicit: false,
+            migration: MigrationState::None,
+            warnings: exposure_warnings(profile),
         });
     }
-    if let Some(root) = repo.clone() {
+
+    match profile {
+        StorageProfile::Private => discover_private(repository, intent),
+        StorageProfile::Committed => discover_committed(&cwd, repository),
+    }
+}
+
+fn discover_private(
+    repository: Option<Repository>,
+    intent: StorageIntent,
+) -> AppResult<ResolvedFile> {
+    let Some(repository) = repository else {
+        if !matches!(intent, StorageIntent::Read) {
+            return Err(AppError::storage_required());
+        }
         return Ok(ResolvedFile {
-            path: root.join(".papercuts.jsonl"),
+            path: None,
+            profile: StorageProfile::Private,
             explicit: false,
-            repo: Some(root),
+            repo: None,
+            source: StorageSource::ProfileDefault,
+            private_implicit: true,
+            migration: MigrationState::None,
+            warnings: vec!["storage_required_for_writes".into()],
         });
+    };
+    let path = repository.common_dir.join("papercuts/log.jsonl");
+    let legacy = repository.root.join(".papercuts.jsonl");
+    let private_exists = try_exists(&path)?;
+    let legacy_exists = try_exists(&legacy)?;
+    let (migration, warnings) = match (private_exists, legacy_exists) {
+        (false, true) => (
+            MigrationState::LegacyOnly,
+            vec!["legacy_journal_detected".into()],
+        ),
+        (true, true) => (MigrationState::Dual, vec!["legacy_journal_retained".into()]),
+        _ => (MigrationState::None, Vec::new()),
+    };
+    if migration == MigrationState::LegacyOnly
+        && matches!(
+            intent,
+            StorageIntent::Add | StorageIntent::Resolve | StorageIntent::ResolveDryRun
+        )
+    {
+        return Err(AppError::migration_required());
     }
-    let home = std::env::var_os("HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| {
-            AppError::config(
-                "cannot resolve the home directory for the default papercuts file",
-                "Set HOME or pass --file PATH.",
-            )
-        })?;
     Ok(ResolvedFile {
-        path: absolute(&cwd, home).join(".papercuts/log.jsonl"),
+        path: Some(path),
+        profile: StorageProfile::Private,
         explicit: false,
-        repo: None,
+        repo: Some(repository.root),
+        source: StorageSource::ProfileDefault,
+        private_implicit: true,
+        migration,
+        warnings,
     })
 }
 
-pub fn find_repo_root(start: &Path) -> Option<PathBuf> {
-    start
-        .ancestors()
-        .find(|candidate| candidate.join(".git").exists())
-        .map(Path::to_path_buf)
+fn discover_committed(cwd: &Path, repository: Option<Repository>) -> AppResult<ResolvedFile> {
+    let (path, repo) = if let Some(repository) = repository {
+        let path = repository.root.join(".papercuts.jsonl");
+        (path, Some(repository.root))
+    } else {
+        let home = std::env::var_os("HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                AppError::config(
+                    "cannot resolve HOME for committed profile storage",
+                    "Set HOME or pass an explicit --file PATH.",
+                )
+            })?;
+        (absolute(cwd, home).join(".papercuts/log.jsonl"), None)
+    };
+    Ok(ResolvedFile {
+        path: Some(path),
+        profile: StorageProfile::Committed,
+        explicit: false,
+        repo,
+        source: StorageSource::ProfileDefault,
+        private_implicit: false,
+        migration: MigrationState::None,
+        warnings: exposure_warnings(StorageProfile::Committed),
+    })
+}
+
+fn exposure_warnings(profile: StorageProfile) -> Vec<String> {
+    if profile == StorageProfile::Committed {
+        vec!["legacy_absolute_path_exposure".into()]
+    } else {
+        Vec::new()
+    }
+}
+
+fn try_exists(path: &Path) -> AppResult<bool> {
+    path.try_exists()
+        .map_err(|error| AppError::from_io(error, path))
+}
+
+pub fn resolve_repository(start: &Path) -> AppResult<Option<Repository>> {
+    let physical =
+        std::fs::canonicalize(start).map_err(|error| AppError::from_io(error, Path::new(".")))?;
+    for candidate in physical.ancestors() {
+        let marker = candidate.join(".git");
+        let metadata = match std::fs::symlink_metadata(&marker) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(AppError::from_io(error, &marker)),
+        };
+        if metadata.file_type().is_symlink() {
+            return Err(AppError::invalid_repository(
+                "the nearest Git marker must not be a symlink",
+            ));
+        }
+        let git_dir = if metadata.is_dir() {
+            marker
+        } else if metadata.is_file() {
+            let value = read_metadata_path(&marker, "gitdir:")?;
+            absolute(candidate, value)
+        } else {
+            return Err(AppError::invalid_repository(
+                "the nearest Git marker is neither a directory nor a gitdir file",
+            ));
+        };
+        let git_dir = canonical_directory(&git_dir, "Git directory")?;
+        require_regular_file(&git_dir.join("HEAD"), "Git HEAD")?;
+        let commondir_file = git_dir.join("commondir");
+        let common_dir = match std::fs::symlink_metadata(&commondir_file) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                let value = read_single_path(&commondir_file)?;
+                canonical_directory(&absolute(&git_dir, value), "Git common directory")?
+            }
+            Ok(_) => {
+                return Err(AppError::invalid_repository(
+                    "Git commondir metadata must be a regular file",
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => git_dir.clone(),
+            Err(error) => return Err(AppError::from_io(error, &commondir_file)),
+        };
+        require_regular_file(&common_dir.join("config"), "Git config")?;
+        require_directory(&common_dir.join("objects"), "Git objects directory")?;
+        return Ok(Some(Repository {
+            root: candidate.to_path_buf(),
+            git_dir,
+            common_dir,
+        }));
+    }
+    Ok(None)
+}
+
+fn read_metadata_path(path: &Path, prefix: &str) -> AppResult<PathBuf> {
+    let bytes = std::fs::read(path).map_err(|error| AppError::from_io(error, path))?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| AppError::invalid_repository("Git metadata path must be valid UTF-8"))?;
+    let line = single_logical_line(text)?;
+    let value = line
+        .strip_prefix(prefix)
+        .ok_or_else(|| AppError::invalid_repository("Git metadata has an unknown path prefix"))?;
+    let value = value.trim_start();
+    if value.is_empty() {
+        return Err(AppError::invalid_repository(
+            "Git metadata path must not be empty",
+        ));
+    }
+    Ok(PathBuf::from(value))
+}
+
+fn read_single_path(path: &Path) -> AppResult<PathBuf> {
+    let bytes = std::fs::read(path).map_err(|error| AppError::from_io(error, path))?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| {
+        AppError::invalid_repository("Git common-directory metadata must be valid UTF-8")
+    })?;
+    let line = single_logical_line(text)?;
+    if line.is_empty() {
+        return Err(AppError::invalid_repository(
+            "Git common-directory path must not be empty",
+        ));
+    }
+    Ok(PathBuf::from(line))
+}
+
+fn single_logical_line(text: &str) -> AppResult<&str> {
+    if text.as_bytes().contains(&0) {
+        return Err(AppError::invalid_repository(
+            "Git metadata must not contain NUL bytes",
+        ));
+    }
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or("").trim_end_matches('\r');
+    if lines.any(|line| !line.trim().is_empty()) {
+        return Err(AppError::invalid_repository(
+            "Git metadata must contain exactly one logical line",
+        ));
+    }
+    Ok(first)
+}
+
+fn canonical_directory(path: &Path, label: &str) -> AppResult<PathBuf> {
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|_| AppError::invalid_repository(format!("{label} is missing or unreadable")))?;
+    require_directory(&canonical, label)?;
+    Ok(canonical)
+}
+
+fn require_regular_file(path: &Path, label: &str) -> AppResult<()> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| AppError::invalid_repository(format!("{label} is missing or unreadable")))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(AppError::invalid_repository(format!(
+            "{label} must be a regular file"
+        )));
+    }
+    Ok(())
+}
+
+fn require_directory(path: &Path, label: &str) -> AppResult<()> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| AppError::invalid_repository(format!("{label} is missing or unreadable")))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(AppError::invalid_repository(format!(
+            "{label} must be a directory"
+        )));
+    }
+    Ok(())
 }
 
 fn absolute(cwd: &Path, path: PathBuf) -> PathBuf {
@@ -115,6 +375,14 @@ pub fn with_shared<T>(path: &Path, action: impl FnOnce(&mut File) -> AppResult<T
     }
 }
 
+pub fn with_shared_resolved<T>(
+    resolved: &ResolvedFile,
+    action: impl FnOnce(&mut File) -> AppResult<T>,
+) -> AppResult<T> {
+    validate_private_journal(resolved)?;
+    with_shared(resolved.path()?, action)
+}
+
 pub fn with_exclusive<T>(
     path: &Path,
     create: bool,
@@ -137,6 +405,118 @@ pub fn with_exclusive<T>(
     match (result, unlock) {
         (Err(error), _) | (Ok(_), Err(error)) => Err(error),
         (Ok(value), Ok(())) => Ok(value),
+    }
+}
+
+pub fn with_exclusive_resolved<T>(
+    resolved: &ResolvedFile,
+    create: bool,
+    action: impl FnOnce(&mut File) -> AppResult<T>,
+) -> AppResult<T> {
+    let path = resolved.path()?;
+    validate_private_journal(resolved)?;
+    if !resolved.private_implicit {
+        return with_exclusive(path, create, action);
+    }
+    validate_private_permissions(resolved)?;
+    if create {
+        create_private_parent(path)?;
+    }
+    let mut options = OpenOptions::new();
+    options.read(true).append(true).create(create);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|error| AppError::from_log_open(error, path))?;
+    validate_private_permissions(resolved)?;
+    lock(&file, path, true)?;
+    let result = action(&mut file);
+    let unlock = file
+        .unlock()
+        .map_err(|error| AppError::from_io(error, path));
+    match (result, unlock) {
+        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+    }
+}
+
+pub fn validate_private_journal(resolved: &ResolvedFile) -> AppResult<()> {
+    if resolved.profile != StorageProfile::Private {
+        return Ok(());
+    }
+    let Some(path) = resolved.path.as_deref() else {
+        return Ok(());
+    };
+    if resolved.private_implicit
+        && let Some(parent) = path.parent()
+    {
+        reject_symlink(parent)?;
+    }
+    reject_symlink(path)
+}
+
+fn reject_symlink(path: &Path) -> AppResult<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(AppError::unsafe_journal_symlink())
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(AppError::from_io(error, path)),
+    }
+}
+
+fn create_private_parent(path: &Path) -> AppResult<()> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    if parent.exists() {
+        return Ok(());
+    }
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder
+        .create(parent)
+        .map_err(|error| AppError::from_io(error, parent))?;
+    Ok(())
+}
+
+pub fn private_permissions_secure(resolved: &ResolvedFile) -> AppResult<bool> {
+    if !resolved.private_implicit {
+        return Ok(true);
+    }
+    let Some(path) = resolved.path.as_deref() else {
+        return Ok(true);
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for candidate in [path.parent(), Some(path)].into_iter().flatten() {
+            match std::fs::symlink_metadata(candidate) {
+                Ok(metadata) if metadata.permissions().mode() & 0o077 != 0 => return Ok(false),
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(AppError::from_io(error, candidate)),
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn validate_private_permissions(resolved: &ResolvedFile) -> AppResult<()> {
+    if private_permissions_secure(resolved)? {
+        Ok(())
+    } else {
+        Err(AppError::insecure_private_permissions())
     }
 }
 

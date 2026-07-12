@@ -1,11 +1,10 @@
 use crate::cli::ResolveArgs;
 use crate::error::{AppError, AppResult};
 use crate::output::{self, Meta};
+use crate::policy::{PolicyContext, StorageProfile};
 use crate::store;
-use crate::{ItemStatus, ListItem, Resolution, ResolveRecord, format_timestamp, resolve_agent};
-use jiff::Timestamp;
+use crate::{ItemStatus, ListItem, Resolution, ResolveRecord, format_timestamp};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ResolveData {
@@ -13,29 +12,26 @@ pub struct ResolveData {
     pub record: ListItem,
 }
 
-pub fn run(
-    args: ResolveArgs,
-    file: Option<PathBuf>,
-    pretty: bool,
-    now: Timestamp,
-) -> AppResult<i32> {
+pub fn run(args: ResolveArgs, context: PolicyContext, pretty: bool) -> AppResult<i32> {
     let prefix = normalize_prefix(&args.id)?;
-    let resolved = store::discover(file)?;
-    if args
+    let resolved = &context.storage;
+    let path = resolved.path()?.to_path_buf();
+    let identity = context
         .agent
-        .as_deref()
-        .is_some_and(|agent| agent.trim().is_empty())
-    {
+        .as_ref()
+        .ok_or_else(|| AppError::internal("resolve policy omitted agent identity"))?;
+    if identity.value.trim().is_empty() {
         return Err(AppError::invalid_input(
             "agent name cannot be empty or whitespace-only",
-            "Pass a non-empty --agent NAME or omit the flag.",
+            "Pass a non-empty --agent NAME, set PAPERCUTS_AGENT, or omit both.",
         ));
     }
-    let (agent, source) = resolve_agent(args.agent);
+    let agent = identity.value.clone();
+    let now = context.effective_now()?;
     let ts = format_timestamp(now);
     let note = args.note;
     let action = |log: &mut std::fs::File| -> AppResult<(bool, bool, ListItem)> {
-        let bytes = store::read_bytes(log, &resolved.path)?;
+        let bytes = store::read_bytes(log, &path)?;
         let folded = store::fold_bytes(&bytes);
         let id = match_id(&prefix, &folded.items)?;
         let mut item = folded
@@ -60,27 +56,30 @@ pub fn run(
                 agent: agent.clone(),
                 note: note.clone(),
             };
-            store::append_json(log, &resolved.path, &bytes, &event)?;
+            store::append_json(log, &path, &bytes, &event)?;
         }
         Ok((!args.dry_run, false, item))
     };
     let (changed, already_resolved, record) = match if args.dry_run {
-        store::with_shared(&resolved.path, action)
+        store::with_shared_resolved(resolved, action)
     } else {
-        store::with_exclusive(&resolved.path, false, action)
+        store::with_exclusive_resolved(resolved, false, action)
     } {
         Ok(result) => result,
         Err(error) if error.code == "not_found" && error.exit_code == 66 => {
             return Err(AppError::not_found(
-                format!("papercuts file not found: {}", resolved.path.display()),
+                if context.profile == StorageProfile::Private {
+                    "selected private papercuts file was not found".into()
+                } else {
+                    format!("papercuts file not found: {}", path.display())
+                },
                 "Run `papercuts list --status all` to find an ID after adding a papercut.",
             ));
         }
         Err(error) => return Err(error),
     };
-    let mut meta = Meta::new();
-    meta.file = Some(resolved.path.to_string_lossy().into_owned());
-    meta.agent_source = Some(source.into());
+    let mut meta = Meta::from_policy(&context, true);
+    meta.agent_source = Some(identity.source.into());
     if already_resolved {
         meta.warnings.push("already resolved".into());
     } else if args.dry_run {
@@ -90,6 +89,10 @@ pub fn run(
     output::write_success(ResolveData { changed, record }, pretty, meta)
         .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;
     Ok(0)
+}
+
+pub(crate) fn validate_id(input: &str) -> AppResult<()> {
+    normalize_prefix(input).map(|_| ())
 }
 
 fn normalize_prefix(input: &str) -> AppResult<String> {

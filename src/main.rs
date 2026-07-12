@@ -19,8 +19,7 @@ fn main() {
             }
         },
     };
-    let code = papercuts::effective_now()
-        .and_then(|now| papercuts::commands::run(cli, now))
+    let code = papercuts::commands::run(cli)
         .unwrap_or_else(|error| papercuts::output::write_error(&error));
     std::process::exit(code);
 }

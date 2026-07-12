@@ -7,18 +7,66 @@ pub mod schema;
 use crate::cli::{Cli, Command};
 use crate::error::{AppError, AppResult};
 use crate::output;
-use jiff::Timestamp;
+use crate::policy::{self, Operation};
 
-pub fn run(cli: Cli, now: Timestamp) -> AppResult<i32> {
-    match cli.command {
-        Command::Add(args) => add::run(args, cli.file, cli.pretty, now),
-        Command::List(args) => list::run(args, cli.file, cli.pretty, now),
-        Command::Resolve(args) => resolve::run(args, cli.file, cli.pretty, now),
+pub fn run(cli: Cli) -> AppResult<i32> {
+    let Cli {
+        file,
+        pretty,
+        profile,
+        read_only,
+        sensitive_policy,
+        command,
+    } = cli;
+    match command {
+        Command::Add(args) => {
+            let context = policy::resolve(
+                file,
+                profile,
+                read_only,
+                sensitive_policy,
+                Operation::Add {
+                    dry_run: args.dry_run,
+                    agent: args.agent.clone(),
+                    allow_sensitive: args.allow_sensitive.clone(),
+                },
+            )?;
+            add::run(args, context, pretty)
+        }
+        Command::List(args) => {
+            let context =
+                policy::resolve(file, profile, read_only, sensitive_policy, Operation::List)?;
+            list::run(args, context, pretty)
+        }
+        Command::Resolve(args) => {
+            let context = policy::resolve_with_preflight(
+                file,
+                profile,
+                read_only,
+                sensitive_policy,
+                Operation::Resolve {
+                    dry_run: args.dry_run,
+                    agent: args.agent.clone(),
+                    allow_sensitive: args.allow_sensitive.clone(),
+                },
+                || resolve::validate_id(&args.id),
+            )?;
+            resolve::run(args, context, pretty)
+        }
         Command::Schema { target } => {
-            output::write_success(schema::contract(target), cli.pretty, output::Meta::new())
+            output::write_success(schema::contract(target), pretty, output::Meta::new())
                 .map_err(|error| AppError::from_io(error, std::path::Path::new("stdout")))?;
             Ok(0)
         }
-        Command::Doctor => doctor::run(cli.file, cli.pretty),
+        Command::Doctor => {
+            let context = policy::resolve(
+                file,
+                profile,
+                read_only,
+                sensitive_policy,
+                Operation::Doctor,
+            )?;
+            doctor::run(context, pretty)
+        }
     }
 }

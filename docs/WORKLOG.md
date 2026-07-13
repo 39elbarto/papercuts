@@ -1069,3 +1069,34 @@ returned the correct parent ID. The mismatch was recorded as
 
 Wait for the day-1 gate. When its ClickUp notification arrives, reopen
 **PaperCuts Project** and continue from `docs/PILOT_STATUS.md`.
+
+## 2026-07-13: Day-1 pilot review
+
+- Started after the elapsed-time gate at `2026-07-13T16:18:02+07:00`.
+- Used the exact gated binary with `PAPERCUTS_READ_ONLY=1` and the private
+  profile for every journal command. No cut was added or resolved.
+- Verified contract 2, the installed binary SHA-256, healthy doctors, zero
+  findings, private modes `700/600`, and zero tracked journal files for both
+  aliases.
+- Counted four cuts across five journal lines: three open and one resolved. No
+  raw cut text, notes, locators, or journal lines were copied into evidence.
+- After the read-only snapshot, the write-capable documentation closeout hit a
+  JavaScript/shell interpolation failure. Recorded one clean `minor` tooling
+  cut, `pc_7a276f8350d8`, then verified a healthy five-line Papercuts journal
+  with zero findings. The current combined total is six lines, five cuts, four
+  open, and one resolved.
+- Confirmed that `papercuts` started clean and synchronized. The
+  `acfs-workbench` background worktree grew from 27 to 28 entries since
+  activation, but its committed `AGENTS.md` remains clean, its journal remains
+  outside Git, and its branch is synchronized with `origin/main`; the pilot did
+  not touch or classify the unrelated changes.
+- Recorded zero disclosures, unexpected pilot-caused Git mutations, doctor
+  findings, lock timeouts, permission failures, or new override attempts.
+- Kept `x30.15` in progress. Day-1 evidence is
+  `docs/evidence/x30.15-day-1-review-2026-07-13.md`; the next review is day 3,
+  not before `2026-07-15T16:07:01+07:00`.
+
+### Next step
+
+Publish this checkpoint, attach the commit and evidence path to ClickUp task
+`86ey8vpj4`, close that task, and leave the day-3 reminder open.

@@ -1,6 +1,6 @@
 # Papercuts Pilot Status
 
-Updated: 2026-07-12
+Updated: 2026-07-13 16:21 +07
 
 ## Current state
 
@@ -14,8 +14,10 @@ No other repository is included.
   `804d2b17e65edd865f3dc6e0ec05939aa65cf1ee`.
 - Machine contract: `2`.
 - Both private journals are healthy and remain outside Git.
-- `papercuts`: four journal lines, three cuts, two open and one resolved.
+- `papercuts`: five journal lines, four cuts, three open and one resolved.
 - `acfs-workbench`: one journal line and one open cut.
+- The day-1 review passed after its elapsed-time gate. No stop condition was
+  present; the next review is day 3 on July 15.
 - Warning, refusal, and one explicitly authorized override dry run have passed.
   The override authorization is exhausted.
 
@@ -26,7 +28,7 @@ public release.
 
 `x30.15` remains open for:
 
-- elapsed reviews on days 1, 3, 7, and 14;
+- elapsed reviews on days 3, 7, and 14;
 - legacy-unscanned readback;
 - ACFS review and resolve evidence;
 - rollback proof for both repositories;
@@ -48,6 +50,12 @@ until a stable session identifier is verified.
 | day 3 | [`86ey8vppn`](https://app.clickup.com/t/86ey8vppn) | 2026-07-15 16:15 +07 |
 | day 7 | [`86ey8vppv`](https://app.clickup.com/t/86ey8vppv) | 2026-07-19 16:15 +07 |
 | day 14 | [`86ey8vpqa`](https://app.clickup.com/t/86ey8vpqa) | 2026-07-26 16:15 +07 |
+
+Day 1 passed with both doctors healthy, zero findings, zero tracked journals,
+and no unexpected pilot-caused worktree mutation. The later write-capable
+documentation closeout added one clean tooling signal as intended by the pilot
+rule; its post-append doctor remained healthy. Sanitized evidence is in
+[`docs/evidence/x30.15-day-1-review-2026-07-13.md`](evidence/x30.15-day-1-review-2026-07-13.md).
 
 When a notification arrives:
 

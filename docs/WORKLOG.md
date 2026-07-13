@@ -1082,9 +1082,15 @@ Wait for the day-1 gate. When its ClickUp notification arrives, reopen
   raw cut text, notes, locators, or journal lines were copied into evidence.
 - After the read-only snapshot, the write-capable documentation closeout hit a
   JavaScript/shell interpolation failure. Recorded one clean `minor` tooling
-  cut, `pc_7a276f8350d8`, then verified a healthy five-line Papercuts journal
-  with zero findings. The current combined total is six lines, five cuts, four
-  open, and one resolved.
+  cut, `pc_7a276f8350d8`.
+- The advertised ClickUp comment tool then returned `Tool not found`. Recorded
+  a second clean `minor` tooling cut, `pc_88b8c1e19e3d`, and used the approved
+  local bridge fallback. It preserved the reminder, added the result, closed
+  day-1 task `86ey8vpj4`, and refreshed the parent work date. Readback confirmed
+  status `complete`; the bridge host stopped.
+- Verified a healthy six-line Papercuts journal with zero findings after both
+  appends. The current combined total is seven lines, six cuts, five open, and
+  one resolved.
 - Confirmed that `papercuts` started clean and synchronized. The
   `acfs-workbench` background worktree grew from 27 to 28 entries since
   activation, but its committed `AGENTS.md` remains clean, its journal remains
@@ -1098,5 +1104,5 @@ Wait for the day-1 gate. When its ClickUp notification arrives, reopen
 
 ### Next step
 
-Publish this checkpoint, attach the commit and evidence path to ClickUp task
-`86ey8vpj4`, close that task, and leave the day-3 reminder open.
+Leave the day-3 reminder open. Run the next review no earlier than
+`2026-07-15T16:07:01+07:00` and continue from `docs/PILOT_STATUS.md`.

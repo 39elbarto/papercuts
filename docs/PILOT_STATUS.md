@@ -14,7 +14,7 @@ No other repository is included.
   `804d2b17e65edd865f3dc6e0ec05939aa65cf1ee`.
 - Machine contract: `2`.
 - Both private journals are healthy and remain outside Git.
-- `papercuts`: five journal lines, four cuts, three open and one resolved.
+- `papercuts`: six journal lines, five cuts, four open and one resolved.
 - `acfs-workbench`: one journal line and one open cut.
 - The day-1 review passed after its elapsed-time gate. No stop condition was
   present; the next review is day 3 on July 15.
@@ -53,8 +53,9 @@ until a stable session identifier is verified.
 
 Day 1 passed with both doctors healthy, zero findings, zero tracked journals,
 and no unexpected pilot-caused worktree mutation. The later write-capable
-documentation closeout added one clean tooling signal as intended by the pilot
-rule; its post-append doctor remained healthy. Sanitized evidence is in
+documentation and ClickUp closeout added two clean tooling signals as intended
+by the pilot rule; post-append doctor remained healthy. The day-1 ClickUp task
+is `complete`. Sanitized evidence is in
 [`docs/evidence/x30.15-day-1-review-2026-07-13.md`](evidence/x30.15-day-1-review-2026-07-13.md).
 
 When a notification arrives:

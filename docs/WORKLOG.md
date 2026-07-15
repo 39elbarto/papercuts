@@ -1106,3 +1106,31 @@ Wait for the day-1 gate. When its ClickUp notification arrives, reopen
 
 Leave the day-3 reminder open. Run the next review no earlier than
 `2026-07-15T16:07:01+07:00` and continue from `docs/PILOT_STATUS.md`.
+
+## 2026-07-15: Day-3 pilot review
+
+- Started after the elapsed-time gate at `2026-07-15T20:51:45+07:00`.
+- Used the exact gated binary with `PAPERCUTS_READ_ONLY=1` and the private
+  profile for the scheduled snapshot. Both doctors were healthy with zero
+  findings; no cut had been added since the day-1 closeout.
+- Reproduced the ClickUp parent `subtasks_count=0` mismatch and the mixed `br`
+  JSON-envelope shapes. The ClickUp comment tool remains advertised, but no
+  runtime write probe ran during the review.
+- Resolved `pc_7a276f8350d8` after the command-construction fix did not recur.
+  Resolved ACFS cut `pc_92d7ccde04df` after confirming the activation workflow
+  now verifies the exact committed pilot marker.
+- Post-resolution doctors remained healthy. Current combined state is nine
+  journal lines, six cuts, three open and three resolved.
+- The first staging preflight caught an extra blank line at the end of the new
+  evidence file. Removed it, recorded clean minor cut `pc_69790f1a2586`, and
+  rechecked the doctor. Current combined state is ten lines, seven cuts, four
+  open and three resolved.
+- Confirmed zero disclosures, autonomous overrides, unexpected pilot-caused
+  Git mutations, lock timeouts, permission failures, and doctor findings.
+- Kept the core unchanged and `x30.15` in progress. Evidence is
+  `docs/evidence/x30.15-day-3-review-2026-07-15.md`.
+
+### Next step
+
+Publish this checkpoint, close ClickUp task `86ey8vppn`, and leave the day-7
+reminder open. Run day 7 no earlier than `2026-07-19T16:07:01+07:00`.

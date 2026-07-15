@@ -63,7 +63,7 @@ is `complete`. Sanitized evidence is in
 Day 3 passed with no new cuts, healthy doctors, and two verified resolutions.
 The ClickUp parent subtask-count mismatch and `br` envelope inconsistency remain
 reproducible external-tooling signals; the advertised comment tool remains open
-without a write probe. Evidence is in
+without a write probe. The day-3 ClickUp task is `complete`. Evidence is in
 [`docs/evidence/x30.15-day-3-review-2026-07-15.md`](evidence/x30.15-day-3-review-2026-07-15.md).
 
 When a notification arrives:

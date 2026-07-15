@@ -1132,5 +1132,8 @@ Leave the day-3 reminder open. Run the next review no earlier than
 
 ### Next step
 
-Publish this checkpoint, close ClickUp task `86ey8vppn`, and leave the day-7
-reminder open. Run day 7 no earlier than `2026-07-19T16:07:01+07:00`.
+Published commit `2dd3c90`, then used the approved local bridge to preserve the
+reminder and add the sanitized result. Readback confirmed ClickUp task
+`86ey8vppn` as `complete`, the parent work date as July 15, and the day-7 task
+as `inbox`; the bridge host stopped. Run day 7 no earlier than
+`2026-07-19T16:07:01+07:00`.

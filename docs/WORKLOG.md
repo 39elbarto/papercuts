@@ -1166,5 +1166,9 @@ as `inbox`; the bridge host stopped. Run day 7 no earlier than
 
 ### Next step
 
-Publish the day-7 evidence and close ClickUp task `86ey8vppv`. Leave the day-14
-task open and do not widen the pilot before the final review.
+Published commit `3fba758`, then used the approved local bridge to preserve the
+reminder, append the sanitized result, and close ClickUp task `86ey8vppv`.
+Official readback confirmed status `complete`, the result text, and parent
+`86ey8k1ay`. The parent work date is July 19, day-14 task `86ey8vpqa` remains
+`inbox`, and the bridge host stopped. Do not widen the pilot before the final
+review.

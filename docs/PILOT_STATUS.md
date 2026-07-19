@@ -72,7 +72,8 @@ Day 7 passed with healthy doctors, zero safety findings, and fifteen new ACFS
 cuts. The evidence contains thirteen distinct signals, two same-alias
 duplicates, and three external-tooling promotion clusters. Legacy-unscanned
 readback also passed without mutation. Four corrected, duplicate, or
-superseded records were resolved during closeout. Evidence is in
+superseded records were resolved during closeout. The day-7 ClickUp task is
+`complete`; the day-14 task remains `inbox`. Evidence is in
 [`docs/evidence/x30.15-day-7-review-2026-07-19.md`](evidence/x30.15-day-7-review-2026-07-19.md).
 
 When a notification arrives:

@@ -1,6 +1,6 @@
 # Papercuts Pilot Status
 
-Updated: 2026-07-15 20:55 +07
+Updated: 2026-07-19 21:28 +07
 
 ## Current state
 
@@ -14,13 +14,16 @@ No other repository is included.
   `804d2b17e65edd865f3dc6e0ec05939aa65cf1ee`.
 - Machine contract: `2`.
 - Both private journals are healthy and remain outside Git.
-- `papercuts`: eight journal lines, six cuts, four open and two resolved.
-- `acfs-workbench`: two journal lines and one resolved cut.
+- `papercuts`: ten journal lines, six cuts, two open and four resolved.
+- `acfs-workbench`: nineteen journal lines, sixteen cuts, thirteen open and
+  three resolved.
 - The day-1 review passed after its elapsed-time gate. No stop condition was
   present.
 - The day-3 review also passed. No new cut appeared between checkpoints; two
-  corrected workflow cuts were resolved. A later documentation preflight added
-  one clean minor signal. The next review is day 7 on July 19.
+  corrected workflow cuts were resolved.
+- The day-7 review passed with fifteen new ACFS cuts across at least six work
+  dates. Thirteen were distinct signals and two were clear duplicates. No core
+  change is warranted yet; the next review is day 14 on July 26.
 - Warning, refusal, and one explicitly authorized override dry run have passed.
   The override authorization is exhausted.
 
@@ -31,8 +34,7 @@ public release.
 
 `x30.15` remains open for:
 
-- elapsed reviews on days 7 and 14;
-- legacy-unscanned readback;
+- elapsed review on day 14;
 - rollback proof for both repositories;
 - final signal, noise, false-positive, operator-cost, and safety totals;
 - a documented handoff to the `x30.16` decision.
@@ -65,6 +67,13 @@ The ClickUp parent subtask-count mismatch and `br` envelope inconsistency remain
 reproducible external-tooling signals; the advertised comment tool remains open
 without a write probe. The day-3 ClickUp task is `complete`. Evidence is in
 [`docs/evidence/x30.15-day-3-review-2026-07-15.md`](evidence/x30.15-day-3-review-2026-07-15.md).
+
+Day 7 passed with healthy doctors, zero safety findings, and fifteen new ACFS
+cuts. The evidence contains thirteen distinct signals, two same-alias
+duplicates, and three external-tooling promotion clusters. Legacy-unscanned
+readback also passed without mutation. Four corrected, duplicate, or
+superseded records were resolved during closeout. Evidence is in
+[`docs/evidence/x30.15-day-7-review-2026-07-19.md`](evidence/x30.15-day-7-review-2026-07-19.md).
 
 When a notification arrives:
 

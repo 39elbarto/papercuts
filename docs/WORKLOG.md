@@ -1137,3 +1137,34 @@ reminder and add the sanitized result. Readback confirmed ClickUp task
 `86ey8vppn` as `complete`, the parent work date as July 15, and the day-7 task
 as `inbox`; the bridge host stopped. Run day 7 no earlier than
 `2026-07-19T16:07:01+07:00`.
+
+## 2026-07-19: Day-7 pilot review
+
+- Started after the elapsed-time gate at `2026-07-19T21:21:33+07:00`.
+- Used the exact gated binary with `PAPERCUTS_READ_ONLY=1` for the scheduled
+  snapshot. Both private doctors were healthy with zero findings.
+- Counted 25 journal lines and 22 cuts: 19 open and 3 resolved. Fifteen cuts
+  appeared since day 3, all in ACFS, across at least six observed work dates.
+- Classified the new records as thirteen distinct signals and two clear
+  duplicates. The strongest clusters concern the ClickUp connector runtime,
+  guarded cleanup ergonomics, and Rust test/build cost.
+- Confirmed that eight of fifteen new records were untagged. Tag consistency
+  and duplicate-aware review are operating-layer improvements for the final
+  adoption decision; no Rust core change is recommended now.
+- Exercised an ignored synthetic legacy-unscanned fixture. Private reads
+  emitted both expected warnings, omitted the stored path, remained healthy,
+  and left the fixture byte-identical.
+- Resolved one fixed record, one superseded cross-alias record, and two
+  same-alias duplicates. Current combined state is 29 lines, 22 cuts, 15 open,
+  and 7 resolved; both doctors remain healthy.
+- Preserved 34 unrelated ACFS worktree entries without modification. No
+  disclosure, autonomous override, tracked journal, doctor finding, or
+  pilot-caused Git mutation occurred.
+- Kept `x30.15` in progress. Evidence is
+  `docs/evidence/x30.15-day-7-review-2026-07-19.md`; the final elapsed review is
+  day 14, not before `2026-07-26T16:07:01+07:00`.
+
+### Next step
+
+Publish the day-7 evidence and close ClickUp task `86ey8vppv`. Leave the day-14
+task open and do not widen the pilot before the final review.

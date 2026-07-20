@@ -15,8 +15,8 @@ No other repository is included.
 - Machine contract: `2`.
 - Both private journals are healthy and remain outside Git.
 - `papercuts`: ten journal lines, six cuts, two open and four resolved.
-- `acfs-workbench`: nineteen journal lines, sixteen cuts, thirteen open and
-  three resolved.
+- `acfs-workbench`: twenty journal lines, sixteen cuts, twelve open and four
+  resolved.
 - The day-1 review passed after its elapsed-time gate. No stop condition was
   present.
 - The day-3 review also passed. No new cut appeared between checkpoints; two
@@ -24,6 +24,9 @@ No other repository is included.
 - The day-7 review passed with fifteen new ACFS cuts across at least six work
   dates. Thirteen were distinct signals and two were clear duplicates. No core
   change is warranted yet; the next review is day 14 on July 26.
+- The recurring ClickUp comment signal was promoted to `task-control-center`
+  Bead `br-uf0` and mitigated by published fallback commit `9a1528c`. The
+  external backend mismatch remains outside local ownership.
 - Warning, refusal, and one explicitly authorized override dry run have passed.
   The override authorization is exhausted.
 

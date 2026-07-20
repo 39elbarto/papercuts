@@ -1172,3 +1172,24 @@ Official readback confirmed status `complete`, the result text, and parent
 `86ey8k1ay`. The parent work date is July 19, day-14 task `86ey8vpqa` remains
 `inbox`, and the bridge host stopped. Do not widen the pilot before the final
 review.
+
+## 2026-07-20: First promoted signal mitigated
+
+- Promoted recurring major ClickUp signal `pc_ff9624c2a7d3` into
+  `task-control-center` Bead `br-uf0` in a separate implementation pane.
+- Reproduced the ownership boundary: the Codex schema advertises comment
+  creation, but the external ClickUp app backend returns `Tool not found`.
+- Added and published a machine-owned `clickup-machine-control-host
+  create-comment` fallback, tests, and runbook in commit `9a1528c`.
+- Live creation and readback passed, installed source/runtime hashes matched,
+  the plugin instructions were refreshed, and the bridge host stopped.
+- Closed Bead `br-uf0` and resolved the canonical pilot cut as `mitigated`.
+  The resolution deliberately does not claim the external backend is fixed.
+- Verified ACFS Git status remained byte-identical and doctor remained healthy
+  with zero findings. Current combined pilot state is 30 journal lines, 22
+  cuts, 14 open, and 8 resolved.
+
+### Next step
+
+Observe whether agents use the fallback without interruption. Keep the cleanup
+and Rust build-cost clusters open for the day-14 promotion decision.
